@@ -1,0 +1,9 @@
+name: pilot-sleep-cassette
+data_config: configs/data/pilot.yaml
+task: task_5
+channels: [eeg_fpz_cz]
+models: [dummy, rf]
+n_splits: 5
+rf_trees: 64
+max_epochs_per_recording: 240
+device: cpu

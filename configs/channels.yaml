@@ -1,0 +1,41 @@
+profiles:
+  eeg_fpz_cz:
+  - eeg_fpz_cz
+  eeg_fpz_cz+eog:
+  - eeg_fpz_cz
+  - eog
+  eeg_fpz_cz+emg:
+  - eeg_fpz_cz
+  - emg
+  eeg_fpz_cz+eog+emg:
+  - eeg_fpz_cz
+  - eog
+  - emg
+  eeg_pz_oz:
+  - eeg_pz_oz
+  eeg_pz_oz+eog:
+  - eeg_pz_oz
+  - eog
+  eeg_pz_oz+emg:
+  - eeg_pz_oz
+  - emg
+  eeg_pz_oz+eog+emg:
+  - eeg_pz_oz
+  - eog
+  - emg
+  eeg_fpz_cz+eeg_pz_oz:
+  - eeg_fpz_cz
+  - eeg_pz_oz
+  eeg_fpz_cz+eeg_pz_oz+eog:
+  - eeg_fpz_cz
+  - eeg_pz_oz
+  - eog
+  eeg_fpz_cz+eeg_pz_oz+emg:
+  - eeg_fpz_cz
+  - eeg_pz_oz
+  - emg
+  eeg_fpz_cz+eeg_pz_oz+eog+emg:
+  - eeg_fpz_cz
+  - eeg_pz_oz
+  - eog
+  - emg

@@ -1,0 +1,9 @@
+name: pilot-real-cnn-smoke
+data_config: configs/data/pilot.yaml
+task: task_5
+channels: [eeg_fpz_cz]
+models: [dummy, cnn]
+n_splits: 5
+cnn_epochs: 1
+max_epochs_per_recording: 240
+device: cpu
