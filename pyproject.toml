@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sleep-staging-local"
+version = "0.1.0"
+description = "Infraestructura local reproducible para Sleep-EDFx"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=2,<3", "scipy>=1.14,<2", "pandas>=2.2,<3", "pyarrow>=18",
+  "mne>=1.10,<2", "scikit-learn>=1.6,<2", "mlflow>=3.1,<4",
+  "pydantic>=2.10,<3", "typer>=0.15,<1", "pyyaml>=6,<7",
+  "python-dotenv>=1,<2", "requests>=2.32,<3", "matplotlib>=3.9,<4",
+  "psutil>=6", "filelock>=3.16",
+]
+
+[project.optional-dependencies]
+dl = ["torch>=2.6,<3"]
+boosting = ["lightgbm>=4.5,<5"]
+
+[project.scripts]
+sleep-stage = "sleep_staging.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11", "mypy>=1.15", "types-PyYAML", "types-requests", "types-psutil", "nbformat>=5", "nbclient>=0.10"]
+notebook = ["jupyterlab>=4,<5", "ipykernel>=6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: servidor MLflow y flujo completo", "real_data: requiere datos descargados explícitamente"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sleep_staging"]
