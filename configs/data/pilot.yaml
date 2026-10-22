@@ -1,0 +1,3 @@
+name: sc-pilot
+source: sleep-cassette
+records: [SC4001, SC4011, SC4021, SC4031, SC4041, SC4051, SC4061, SC4071]
