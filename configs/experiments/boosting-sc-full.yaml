@@ -1,0 +1,17 @@
+name: sleep-cassette-full-boosting
+data_config: configs/data/sleep-cassette.yaml
+split_file: configs/splits/sc_subjects_v1.csv
+
+task: task_5
+channels: [eeg_fpz_cz]
+
+models: [dummy, rf, lgbm, catboost]
+
+seed: 42
+n_splits: 5
+rf_trees: 64
+
+max_epochs_per_recording: null
+wake_margin_minutes: null
+
+device: cpu

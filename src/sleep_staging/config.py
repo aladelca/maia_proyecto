@@ -52,10 +52,11 @@ class ExperimentConfig(BaseModel):
     data_config: str = "configs/data/pilot.yaml"
     channels: list[str] = Field(default_factory=lambda: ["eeg_fpz_cz"])
     task: Literal["task_5", "task_6"] = "task_6"
-    models: list[Literal["dummy", "rf", "lgbm", "catboost", "cnn"]] = ["dummy", "rf"]    
+    models: list[Literal["dummy", "rf", "lgbm", "catboost", "cnn"]] = ["dummy", "rf"]
     seed: int = 42
     n_splits: int = Field(default=5, ge=2)
     test_fraction: float = Field(default=0.2, gt=0, lt=0.5)
+    split_file: str | None = None
     workers: int = Field(default=2, ge=1, le=2)
     eeg_low: float = Field(default=0.3, gt=0)
     eeg_high: float = Field(default=35, gt=0, lt=50)

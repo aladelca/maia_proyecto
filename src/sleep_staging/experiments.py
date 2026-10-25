@@ -30,34 +30,98 @@ from sleep_staging.tracking import init_tracking
 
 
 def create_splits(prepared: Path, cfg: ExperimentConfig, root: Path) -> Path:
-    key = fingerprint(
-        {
-            "preprocessing_id": prepared.name,
-            "n_splits": cfg.n_splits,
-            "seed": cfg.seed,
-            "test_fraction": cfg.test_fraction,
-        }
-    )
+    split_path = root / cfg.split_file if cfg.split_file else None
+
+    if split_path is not None and not split_path.is_file():
+        raise ValueError(f"No existe el archivo de particiones: {split_path}")
+
+    split_hash = hash_file(split_path) if split_path else None
+
+    inputs = {
+        "preprocessing_id": prepared.name,
+        "n_splits": cfg.n_splits,
+        "seed": cfg.seed,
+        "test_fraction": cfg.test_fraction,
+    }
+    if split_hash is not None:
+        inputs["fixed_split_sha256"] = split_hash
+
+    key = fingerprint(inputs)
     directory = root / "data/splits" / key
     directory.parent.mkdir(parents=True, exist_ok=True)
+
     with FileLock(str(directory) + ".lock"):
         if (directory / "metadata.json").exists():
             return directory
+
         epochs = pd.read_parquet(prepared / "epochs.parquet")
-        subjects = assign_subjects(epochs, cfg.n_splits, cfg.seed, cfg.test_fraction)
+
+        if split_path is None:
+            subjects = assign_subjects(
+                epochs, cfg.n_splits, cfg.seed, cfg.test_fraction
+            )
+        else:
+            subjects = pd.read_csv(split_path, dtype={"subject_id": str})
+            required = {"subject_id", "partition", "fold"}
+
+            if not required.issubset(subjects.columns):
+                raise ValueError("El CSV requiere subject_id, partition y fold.")
+
+            subjects = subjects[["subject_id", "partition", "fold"]].copy()
+
+            if subjects.isna().any().any():
+                raise ValueError("Hay valores nulos en las particiones.")
+
+            if subjects.subject_id.duplicated().any():
+                raise ValueError("Existen sujetos duplicados.")
+
+            subjects["fold"] = pd.to_numeric(subjects["fold"], errors="raise")
+
+            if not (subjects["fold"] % 1 == 0).all():
+                raise ValueError("Los identificadores de fold deben ser enteros.")
+
+            subjects["fold"] = subjects["fold"].astype(int)
+
+            expected = set(epochs.subject_id.astype(str).unique())
+            actual = set(subjects.subject_id)
+
+            if expected != actual:
+                raise ValueError(
+                    f"Partición incompatible. "
+                    f"Faltantes: {sorted(expected - actual)}. "
+                    f"Adicionales: {sorted(actual - expected)}."
+                )
+
+            dev = subjects[subjects.partition.eq("development")]
+            test = subjects[subjects.partition.eq("test")]
+
+            if len(dev) + len(test) != len(subjects):
+                raise ValueError("Se encontraron particiones desconocidas.")
+
+            if dev.empty or test.empty:
+                raise ValueError("Desarrollo y prueba deben tener sujetos.")
+
+            if set(dev.fold) != set(range(cfg.n_splits)):
+                raise ValueError("Los folds de desarrollo son incompatibles.")
+
+            if not test.fold.eq(-1).all():
+                raise ValueError("Los sujetos de prueba deben tener fold -1.")
+
         with atomic_path(directory / "subjects.parquet") as temp:
             subjects.to_parquet(temp, index=False)
-        write_json(
-            directory / "metadata.json",
-            {
-                "schema_version": 1,
-                "preprocessing_id": prepared.name,
-                "seed": cfg.seed,
-                "n_splits": cfg.n_splits,
-                "test_fraction": cfg.test_fraction,
-                "subjects_hash": hash_file(directory / "subjects.parquet"),
-            },
-        )
+
+        metadata = {
+            "schema_version": 1,
+            "preprocessing_id": prepared.name,
+            "seed": cfg.seed,
+            "n_splits": cfg.n_splits,
+            "test_fraction": cfg.test_fraction,
+            "subjects_hash": hash_file(directory / "subjects.parquet"),
+            "fixed_split_file": cfg.split_file,
+            "fixed_split_sha256": split_hash,
+        }
+        write_json(directory / "metadata.json", metadata)
+
     return directory
 
 
@@ -210,7 +274,9 @@ def _run(
                     ).reshape(-1)
 
                     if len(predicted) != len(validation):
-                        raise ValueError("Número de predicciones incompatible con validación")
+                        raise ValueError(
+                            "Número de predicciones incompatible con validación"
+                        )
                     metrics = evaluate(
                         validation[cfg.task].to_numpy(), predicted, classes
                     )
