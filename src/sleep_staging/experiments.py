@@ -205,7 +205,12 @@ def _run(
                         model.fit(
                             tables[family].loc[training.index], training[cfg.task]
                         )
-                    predicted = model.predict(tables[family].loc[validation.index])
+                    predicted = np.asarray(
+                        model.predict(tables[family].loc[validation.index])
+                    ).reshape(-1)
+
+                    if len(predicted) != len(validation):
+                        raise ValueError("Número de predicciones incompatible con validación")
                     metrics = evaluate(
                         validation[cfg.task].to_numpy(), predicted, classes
                     )
@@ -321,6 +326,8 @@ def _run(
                     "python-dotenv",
                 ]
                 + (["torch"] if winner == "cnn" else [])
+                + (["lightgbm"] if winner == "lgbm" else [])
+                + (["catboost"] if winner == "catboost" else [])
             ],
             metadata={
                 "feature_columns": columns,
