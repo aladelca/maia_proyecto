@@ -1,0 +1,22 @@
+candidates:
+  - iterations: 300
+    depth: 4
+    learning_rate: 0.08
+    l2_leaf_reg: 3
+    auto_class_weights: Balanced
+    rsm: 0.6
+    border_count: 64
+  - iterations: 400
+    depth: 5
+    learning_rate: 0.06
+    l2_leaf_reg: 5
+    auto_class_weights: SqrtBalanced
+    rsm: 0.6
+    border_count: 64
+  - iterations: 500
+    depth: 6
+    learning_rate: 0.05
+    l2_leaf_reg: 9
+    auto_class_weights: null
+    rsm: 0.6
+    border_count: 64
