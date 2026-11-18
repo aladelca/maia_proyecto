@@ -240,6 +240,7 @@ def _run(
         for family in cfg.models:
             fold_scores = []
             fold_accuracy = []
+            fold_kappa = []
             start = time.monotonic()
             for fold in range(cfg.n_splits):
                 training = development[development.fold.ne(fold)]
@@ -282,6 +283,8 @@ def _run(
                     )
                     fold_scores.append(metrics["f1_macro"])
                     fold_accuracy.append(metrics["accuracy"])
+                    if metrics["kappa"] is not None:
+                        fold_kappa.append(metrics["kappa"])
                     mlflow.log_params(
                         {
                             "model": family,
@@ -345,6 +348,8 @@ def _run(
                     "f1_macro": float(np.mean(fold_scores)),
                     "f1_std": float(np.std(fold_scores)),
                     "accuracy": float(np.mean(fold_accuracy)),
+                    "kappa": float(np.mean(fold_kappa)) if fold_kappa else None,
+                    "kappa_std": float(np.std(fold_kappa)) if fold_kappa else None,
                     "fold_scores": fold_scores,
                     "elapsed_seconds": time.monotonic() - start,
                 }
@@ -449,8 +454,16 @@ def _run(
             plot_confusion(metrics, report_dir / f"{family}-confusion.png")
         mlflow.log_artifacts(str(report_dir), "reports")
         mlflow.log_metric("winner_f1_macro_cv", float(leaderboard.iloc[0].f1_macro))
+        if leaderboard.iloc[0].kappa is not None:
+            mlflow.log_metric("winner_kappa_cv", float(leaderboard.iloc[0].kappa))
         mlflow.set_tag("winner", winner)
+        kappa_display = (
+            f"; kappa CV = {leaderboard.iloc[0].kappa:.4f} +/- {leaderboard.iloc[0].kappa_std:.4f}"
+            if leaderboard.iloc[0].kappa is not None
+            else ""
+        )
         print(
             f"Winner model: {winner}; F1 macro CV = {leaderboard.iloc[0].f1_macro:.4f} +/- {leaderboard.iloc[0].f1_std:.4f}"
+            + kappa_display
         )
     return {**summary, "leaderboard": leaderboard, "oof": oof}
