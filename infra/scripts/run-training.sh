@@ -6,7 +6,7 @@ case "$mode" in refit|tune) ;; *) exit 2;; esac
 job=${CAMPAIGN_ID:-$(python3 -c 'import uuid;print(uuid.uuid4())')}
 python3 -c 'import sys,uuid;assert str(uuid.UUID(sys.argv[1]))==sys.argv[1]' "$job"
 attempt=$(python3 -c 'import uuid;print(uuid.uuid4())')
-root="$(pwd)/var/cloud/fit/$job"
+root="$(pwd)/var/cloud/fit/$job/$attempt"
 mkdir -p "$root"
 terraform -chdir=infra/training output -json runner >"$root/runner.json"
 python3 - "$root" "$job" "$attempt" "$mode" <<'PY'
@@ -29,6 +29,7 @@ if [[ -n "$existing" ]]; then
   if [[ "$state" != terminated ]]; then echo "Campaign already has instance $existing ($state)" >&2;exit 1;fi
 fi
 tf plan -input=false -var="region=$region" -var-file="$root/fit.tfvars.json" -out="$root/fit.tfplan"
+tf show -json "$root/fit.tfplan" | python3 -c 'import json,sys; changes=json.load(sys.stdin).get("resource_changes",[]); sys.exit("Refusing to replace an existing training instance") if any("delete" in r["change"]["actions"] for r in changes) else None'
 tf apply -input=false "$root/fit.tfplan"
 id=$(tf output -raw instance_id)
 echo "Campaign $job on $id. Logs: /maia/sleep/dev/training"

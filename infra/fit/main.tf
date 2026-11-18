@@ -6,7 +6,13 @@ terraform {
 variable "region" { default = "us-west-2" }
 provider "aws" { region = var.region }
 variable "runner" { type = any }
-variable "attempt" { type = string }
+variable "attempt" {
+  type = string
+  validation {
+    condition     = can(regex("^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$", var.attempt))
+    error_message = "The attempt must have a UUID."
+  }
+}
 variable "run_id" {
   type = string
 
