@@ -130,3 +130,5 @@ El 18 de noviembre de 2026 se comprobó el flujo en `us-west-2` con la noche pú
 | Cambio y reversión | La API procesó el ejemplo y la carga con el candidato EC2 `lgbm-a0f29b53352d6156`. Se restauró el campeón `lgbm-49f74e944ce5457b`. |
 
 La comparación de la noche verifica portabilidad e implementación. Las métricas de generalización se calculan con los folds por sujeto.
+
+El stack de plataforma admite `monthly_budget` con `limit_usd` y `recipient` para un presupuesto mensual de toda la cuenta y un aviso al 80 %. En la demo quedó desactivado porque no se definieron un monto ni un destinatario.
