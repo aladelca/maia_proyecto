@@ -16,17 +16,20 @@ from filelock import FileLock
 from mlflow.tracking import MlflowClient
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from sleep_staging.booster_selection import (
+    BoosterCandidate,
+    choose_trial,
+    split_subjects,
+)
 from sleep_staging.config import CLASSES, read_yaml
 from sleep_staging.evaluation import evaluate, plot_confusion, scalar_metrics
 from sleep_staging.lstm_data import SequenceData
 from sleep_staging.lstm_research import (
     LSTMConfig,
     WindowSpec,
-    choose_trial,
     fit_sequence,
     load_reference,
     predict_checkpoint,
-    split_subjects,
     tracked_run,
 )
 from sleep_staging.models.lstm import require_mps
@@ -35,22 +38,6 @@ from sleep_staging.refinement_data import refinement_views
 from sleep_staging.research import paired_subject_bootstrap
 
 CLASSES_5 = CLASSES["task_5"]
-
-
-class BoosterCandidate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
-    n_estimators: int = Field(default=450, ge=1)
-    learning_rate: float = Field(default=0.05, gt=0)
-    num_leaves: int = Field(default=31, ge=2)
-    min_child_samples: int = Field(default=100, ge=1)
-    max_bin: int = Field(default=63, ge=2)
-    reg_alpha: float = Field(default=0, ge=0)
-    reg_lambda: float = Field(default=3, ge=0)
-    colsample_bytree: float = Field(default=0.8, gt=0, le=1)
-    subsample: float = Field(default=0.8, gt=0, le=1)
-    subsample_freq: int = Field(default=1, ge=0)
-    weight_power: float = Field(default=1, ge=0, le=1)
 
 
 class NeuralCandidate(BaseModel):

@@ -21,8 +21,8 @@ import torch
 from filelock import FileLock
 from mlflow.tracking import MlflowClient
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sklearn.model_selection import GroupShuffleSplit
 
+from sleep_staging.booster_selection import choose_trial, split_subjects
 from sleep_staging.config import CLASSES, read_yaml
 from sleep_staging.evaluation import evaluate, plot_confusion, scalar_metrics
 from sleep_staging.lstm_data import FeatureScaler, SequenceData, sequence_index
@@ -87,34 +87,6 @@ class LSTMConfig(BaseModel):
         ):
             raise ValueError("Unique nonempty variants are required.")
         return self
-
-
-def split_subjects(
-    frame: pd.DataFrame, fold: int, seed: int
-) -> tuple[list, list, list]:
-    available = frame.loc[frame.fold.ne(fold)] if fold >= 0 else frame
-    groups = available.subject_id.to_numpy()
-    a, b = next(
-        GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=seed).split(
-            groups, groups=groups
-        )
-    )
-    training = sorted(set(groups[a]))
-    validation = sorted(set(groups[b]))
-    external = (
-        sorted(set(frame.loc[frame.fold.eq(fold), "subject_id"])) if fold >= 0 else []
-    )
-    if set(training) & set(validation) or (set(training) | set(validation)) & set(
-        external
-    ):
-        raise ValueError("Subject leakage in nested validation.")
-    return training, validation, external
-
-
-def choose_trial(trials: list[dict]) -> dict:
-    return sorted(
-        trials, key=lambda t: (-t["best_f1_macro"], t["best_epoch"], t["candidate"])
-    )[0]
 
 
 def write_checkpoint(path: Path, payload: dict) -> None:
