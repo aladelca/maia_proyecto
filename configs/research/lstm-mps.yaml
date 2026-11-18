@@ -1,0 +1,20 @@
+device: mps
+seed: 42
+hidden_size: 64
+dropout: 0.3
+batch_size: 256
+max_epochs: 50
+patience: 7
+min_delta: 0.0001
+weight_decay: 0.0001
+learning_rates: [0.001, 0.0003]
+variants:
+  - name: lstm_single_epoch
+    length: 1
+    centered: false
+  - name: lstm_past15
+    length: 15
+    centered: false
+  - name: bilstm_center15
+    length: 15
+    centered: true
