@@ -78,7 +78,11 @@ env -u SLEEP_STAGING_ROOT PYTORCH_ENABLE_MPS_FALLBACK=0 \
 
 Requiere el dataset y los resultados de la campaña anterior. Entrenamiento y predicción de la red exigen MPS; el preprocesamiento y las métricas usan CPU. Cada ensayo, fold, curva y checkpoint se registra en el experimento MLflow `sleep-cassette-lstm-mps-v1`, visible en la misma UI del puerto 5002. Los artefactos nuevos quedan en `var/research/sc-w30-lstm-mps-v1/`. El [informe de resultados](docs/lstm-mps-results.md) compara las redes con LightGBM y documenta su contrato de secuencias y sus limitaciones.
 
-Resultado: la mejor red fue **BiLSTM, F1 macro 0,7687 ± 0,0211**. LightGBM conserva el mejor F1 macro de desarrollo, 0,7822 ± 0,0161. Se completaron 48 entrenamientos neuronales con ajuste interno y refit, sin evaluar el test reservado.
+Resultado: la mejor red fue **BiLSTM, F1 macro 0,7687 ± 0,0211**. En esa campaña, LightGBM obtuvo el mejor F1 macro de desarrollo, 0,7822 ± 0,0161. Se completaron 48 entrenamientos neuronales con ajuste interno y refit, sin evaluar el test reservado.
+
+## Ajuste de LightGBM y BiLSTM
+
+LightGBM ajustado obtuvo el mayor F1 macro en desarrollo, **0,7893**. Frente a su referencia, LightGBM pasó de 0,7822 a 0,7893 y BiLSTM de 0,7687 a 0,7800. Se compararon 12 configuraciones LightGBM y seis BiLSTM en cinco folds por sujeto. Las 120 corridas de entrenamiento están en [MLflow local](http://127.0.0.1:5002/#/experiments/3). El [informe](docs/refinement-results.md) incluye hiperparámetros finales y comandos de reproducción. El [notebook ejecutado](notebook/06_lgbm_bilstm_tuning.ipynb) muestra las curvas y el F1 por estadio.
 
 ## Validación
 
