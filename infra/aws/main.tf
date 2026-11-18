@@ -125,7 +125,7 @@ resource "aws_apigatewayv2_api" "api" {
   protocol_type = "HTTP"
   cors_configuration {
     allow_origins = [var.origin]
-    allow_headers = ["authorization", "content-type", "idempotency-key"]
+    allow_headers = ["authorization", "content-type", "idempotency-key", "x-guest-token"]
     allow_methods = ["GET", "POST", "OPTIONS"]
     max_age       = 300
   }
@@ -154,6 +154,13 @@ resource "aws_apigatewayv2_route" "routes" {
   authorization_type   = "JWT"
   authorizer_id        = aws_apigatewayv2_authorizer.users.id
   authorization_scopes = ["aws.cognito.signin.user.admin"]
+}
+resource "aws_apigatewayv2_route" "guest" {
+  for_each           = aws_apigatewayv2_route.routes
+  api_id             = aws_apigatewayv2_api.api.id
+  route_key          = replace(each.key, " /v1/", " /public/v1/")
+  target             = "integrations/${aws_apigatewayv2_integration.api.id}"
+  authorization_type = "NONE"
 }
 resource "aws_apigatewayv2_stage" "live" {
   api_id      = aws_apigatewayv2_api.api.id

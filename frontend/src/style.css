@@ -24,12 +24,6 @@ header span {
   padding-left: 18px;
   color: #d7e7e6;
 }
-.link {
-  margin-left: auto;
-  background: transparent;
-  padding: 6px;
-  color: #e9f3ed;
-}
 main {
   max-width: 1000px;
   margin: auto;

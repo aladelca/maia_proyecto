@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import secrets
 import time
 import uuid
 from pathlib import Path
@@ -16,27 +17,31 @@ import requests
 from sleep_staging.serving.contract import LABELS
 
 
-def verify(config: dict, bundle: Path) -> dict:
-    auth = boto3.client("cognito-idp").initiate_auth(
-        ClientId=config["clientId"],
-        AuthFlow="USER_PASSWORD_AUTH",
-        AuthParameters={
-            "USERNAME": os.environ["DEMO_USERNAME"],
-            "PASSWORD": os.environ["DEMO_PASSWORD"],
-        },
-    )["AuthenticationResult"]
-    url = config["api"] + "/v1/"
+def verify(config: dict, bundle: Path, *, guest: bool = False) -> dict:
     client = requests.Session()
-    if client.get(url + "examples/default", timeout=20).status_code != 401:
-        raise RuntimeError("Anonymous request accepted")
-    denied = client.get(
-        url + "examples/default",
-        headers={"Authorization": "Bearer " + auth["IdToken"]},
-        timeout=20,
-    )
-    if denied.status_code not in (401, 403):
-        raise RuntimeError("ID token accepted")
-    client.headers.update({"Authorization": "Bearer " + auth["AccessToken"]})
+    url = config["api"] + ("/public/v1/" if guest else "/v1/")
+    if guest:
+        client.get(url + "examples/default", timeout=20).raise_for_status()
+        client.headers.update({"X-Guest-Token": secrets.token_hex(32)})
+    else:
+        auth = boto3.client("cognito-idp").initiate_auth(
+            ClientId=config["clientId"],
+            AuthFlow="USER_PASSWORD_AUTH",
+            AuthParameters={
+                "USERNAME": os.environ["DEMO_USERNAME"],
+                "PASSWORD": os.environ["DEMO_PASSWORD"],
+            },
+        )["AuthenticationResult"]
+        if client.get(url + "examples/default", timeout=20).status_code != 401:
+            raise RuntimeError("Anonymous request accepted")
+        denied = client.get(
+            url + "examples/default",
+            headers={"Authorization": "Bearer " + auth["IdToken"]},
+            timeout=20,
+        )
+        if denied.status_code not in (401, 403):
+            raise RuntimeError("ID token accepted")
+        client.headers.update({"Authorization": "Bearer " + auth["AccessToken"]})
     client.get(url + "examples/default", timeout=20).raise_for_status()
     example = (bundle / "example.parquet").read_bytes()
     sign = client.post(
@@ -75,6 +80,14 @@ def verify(config: dict, bundle: Path) -> dict:
         accepted.raise_for_status()
         job = accepted.json()["job_id"]
         elapsed = time.monotonic() - started
+        if guest:
+            other = requests.get(
+                url + "predictions/" + job,
+                headers={"X-Guest-Token": secrets.token_hex(32)},
+                timeout=20,
+            )
+            assert other.status_code == 404
+
         for _ in range(80):
             status = client.get(url + "predictions/" + job, timeout=20)
             status.raise_for_status()
@@ -130,7 +143,15 @@ if __name__ == "__main__":
         "--config", type=Path, default=Path("frontend/dist/config.json")
     )
     parser.add_argument("--bundle", type=Path, default=Path("var/cloud/bundle"))
+    parser.add_argument(
+        "--guest",
+        action="store_true",
+        help="Test the public API without a Cognito user",
+    )
     args = parser.parse_args()
     print(
-        json.dumps(verify(json.loads(args.config.read_text()), args.bundle), indent=2)
+        json.dumps(
+            verify(json.loads(args.config.read_text()), args.bundle, guest=args.guest),
+            indent=2,
+        )
     )
