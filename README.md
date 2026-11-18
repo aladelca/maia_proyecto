@@ -47,7 +47,21 @@ Validación de desarrollo con cinco folds por sujeto, cinco clases y EEG Fpz-Cz:
 | CNN 1D, tres épocas máximas | 0,2837 ± 0,0455 | 0,4625 |
 | Baseline mayoritario | 0,1651 ± 0,0041 | 0,7033 |
 
-Random Forest es el ganador por F1 macro en este piloto. Los dos sujetos reservados para test mantienen su evaluación final pendiente. La campaña completa deberá validar estos resultados con más sujetos y sin el límite de épocas del piloto.
+Random Forest es el ganador por F1 macro en este piloto. Los dos sujetos reservados para test mantienen su evaluación final pendiente. La campaña ampliada de desarrollo se describe en la sección siguiente.
+
+## Nuevas variables y ajuste de CatBoost
+
+La campaña de mejora se revisa en [notebook/04_literature_catboost.ipynb](notebook/04_literature_catboost.ipynb). Compara los 62 sujetos de desarrollo con cinco folds fijos: variables originales, nuevos descriptores, canales adicionales, contexto temporal retrospectivo y ajuste interno de CatBoost por sujeto. El [protocolo y la revisión de literatura](docs/literature-model-improvements.md) documentan los experimentos y sus límites. Los 16 sujetos reservados quedan fuera de la preparación y de la evaluación.
+
+```bash
+uv sync --locked --group dev --group notebook --extra boosting --extra dl
+uv run --locked --extra boosting python scripts/run_research.py \
+  --source-root /ruta/al/proyecto/que/contiene/data
+```
+
+Resultado de la campaña: **LightGBM con contexto, F1 macro 0,7822 ± 0,0161**, frente a 0,6544 ± 0,0212 de RF recalculado sobre los mismos segmentos. El [resumen de resultados](docs/research-results-20261116.md) incluye ablaciones, incertidumbre y limitaciones.
+
+Las nuevas corridas, cachés y el candidato se guardan en `var/research/sc-w30-v2/`, con tracking MLflow propio y checkpoints por fold. El notebook consulta los resultados guardados; activar `RUN_TRAINING` permite entrenar explícitamente. Ejecutar `scripts/sync_research_tracking.py` después de la campaña expone los 15 ensayos internos, el ensamble y el candidato nativo en MLflow; la UI de esta campaña está en [localhost:5002](http://127.0.0.1:5002).
 
 ## Validación
 
@@ -58,6 +72,6 @@ make test
 
 Las pruebas de integración de señales y entrenamiento usan los EDF reales del piloto. Si aún no se descargaron, se marcan como omitidas; `make test` informa cuántas corrieron. Las pruebas unitarias de fórmulas y validación de metadatos no sustituyen un dataset experimental.
 
-El [plan de implementación](plans/20261020-1943-infraestructura-local-sleep-edfx-mlflow.md) conserva el avance y las ampliaciones pendientes. La campaña completa, el análisis Telemetry y el despliegue final se desarrollan después del piloto.
+El [plan de implementación](plans/20261020-1943-infraestructura-local-sleep-edfx-mlflow.md) conserva el avance y las ampliaciones pendientes. La evaluación final del test reservado, el análisis Telemetry y la integración para EDF nuevos permanecen pendientes.
 
 Datos y licencia: [Sleep-EDFx 1.0.0 en PhysioNet](https://physionet.org/content/sleep-edfx/1.0.0/), Open Data Commons Attribution License 1.0. Conservar las citas y atribución indicadas por el repositorio de origen al publicar resultados.
