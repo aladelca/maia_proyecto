@@ -46,3 +46,12 @@ resource "aws_ecr_repository" "app" {
 }
 output "buckets" { value = { for k, v in terraform_data.buckets : k => v.output } }
 output "repositories" { value = { for k, v in aws_ecr_repository.app : k => v.repository_url } }
+resource "aws_ecr_repository_policy" "lambda" {
+  for_each   = toset(["api", "worker"])
+  repository = aws_ecr_repository.app[each.key].name
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Sid       = "AllowProjectLambdaPull", Effect = "Allow", Principal = { Service = "lambda.amazonaws.com" },
+    Action    = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+    Condition = { ArnLike = { "aws:SourceArn" = "arn:aws:lambda:${var.region}:${data.aws_caller_identity.current.account_id}:function:${local.name}-${each.key}*" } }
+  }] })
+}
