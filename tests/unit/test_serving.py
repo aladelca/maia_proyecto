@@ -1,8 +1,10 @@
+from unittest.mock import Mock
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from sleep_staging.serving.contract import context_matrix, validate_night
+from sleep_staging.serving.contract import context_matrix, predictions, validate_night
 
 
 def test_night_keeps_excluded_context_and_sorts_epochs():
@@ -30,3 +32,23 @@ def test_night_keeps_excluded_context_and_sorts_epochs():
     ):
         with pytest.raises(ValueError):
             validate_night(data.assign(**change), ["ch__feature"])
+
+
+def test_ties_follow_estimator_class_order():
+    frame = pd.DataFrame(
+        {
+            "recording_id": ["night"],
+            "epoch_id": ["a"],
+            "onset_s": [0],
+            "eligible": [True],
+            "eog__feature": [1.0],
+        }
+    )
+    cols = ["eog__feature"]
+    names = list(context_matrix(frame, cols))
+    model = Mock(
+        classes_=np.array(["N1", "N2", "N3", "REM", "W"]), feature_names_in_=names
+    )
+    model.predict_proba.return_value = np.full((1, 5), 0.2)
+    result = predictions(model, {"raw_columns": cols, "model_columns": names}, frame)
+    assert result.prediction.item() == "N1"

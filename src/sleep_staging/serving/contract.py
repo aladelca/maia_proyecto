@@ -119,15 +119,14 @@ def predictions(model: Any, manifest: dict, frame: pd.DataFrame) -> pd.DataFrame
     result[probs] = np.nan
     mask = frame.eligible
     if mask.any():
-        p = model.predict_proba(x[mask])[
-            :, [list(model.classes_).index(c) for c in LABELS]
-        ]
+        native = model.predict_proba(x[mask])
+        p = native[:, [list(model.classes_).index(c) for c in LABELS]]
         if (
             not np.isfinite(p).all()
             or (p < 0).any()
             or not np.allclose(p.sum(axis=1), 1, atol=1e-6)
         ):
             raise ValueError("Probabilidades inválidas.")
-        result.loc[mask, "prediction"] = np.asarray(LABELS)[p.argmax(axis=1)]
+        result.loc[mask, "prediction"] = np.asarray(model.classes_)[native.argmax(axis=1)]
         result.loc[mask, probs] = p
     return result
