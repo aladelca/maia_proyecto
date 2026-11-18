@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+COPY containers/science.txt /tmp/science.txt
+RUN pip install --no-cache-dir -r /tmp/science.txt mlflow==3.17.1 boto3==1.44.5 mne==1.13.2 filelock==4.2.4 pyyaml==6.0.3
+RUN pip install --no-cache-dir sagemaker-mlflow==0.5.0
+
+ARG SOURCE_REVISION=unversioned
+ENV SOURCE_REVISION=$SOURCE_REVISION GIT_PYTHON_REFRESH=quiet PYTHONPATH=/app/src OPENBLAS_NUM_THREADS=1 PYTHONUNBUFFERED=1
+COPY src/sleep_staging/ src/sleep_staging/
+COPY scripts/train_cloud.py scripts/train_cloud.py
+ENTRYPOINT ["python", "scripts/train_cloud.py"]

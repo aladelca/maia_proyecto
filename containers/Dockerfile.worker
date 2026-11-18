@@ -1,0 +1,6 @@
+FROM public.ecr.aws/lambda/python:3.12
+RUN dnf install -y libgomp && dnf clean all
+COPY containers/science.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY src/sleep_staging/ ${LAMBDA_TASK_ROOT}/sleep_staging/
+CMD ["sleep_staging.serving.worker.handler"]

@@ -13,3 +13,17 @@ __pycache__/
 mlruns/
 mlartifacts/
 *.egg-info/
+
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars*
+.terraform.tfstate.lock.info
+frontend/node_modules/
+frontend/dist/
+.vercel/
+
+frontend/test-results/
+frontend/playwright-report/
+infra/bootstrap/backend.auto.tf.json

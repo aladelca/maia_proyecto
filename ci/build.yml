@@ -1,0 +1,24 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      python: '3.12'
+      nodejs: '22'
+    commands:
+      - ci/install-terraform.sh
+      - pip install uv
+  build:
+    commands:
+      - uv sync --locked --extra cloud --extra boosting
+      - uv run ruff check src services scripts tests infra/scripts
+      - uv run mypy src/sleep_staging scripts services
+      - uv run pytest -q tests/unit/test_cloud_api.py tests/unit/test_serving.py tests/unit/test_cloud_training.py
+      - terraform fmt -check -recursive infra
+      - for stack in bootstrap platform network fit aws training delivery vercel; do terraform -chdir="infra/$stack" init -backend=false && terraform -chdir="infra/$stack" validate || exit 1; done
+      - npm --prefix frontend ci && npm --prefix frontend run build
+      - infra/scripts/init.sh platform
+      - for component in api worker training; do infra/scripts/push-image.sh "$component" || exit 1; done
+artifacts:
+  files:
+    - 'var/cloud/*-image.txt'
+    - 'frontend/dist/**/*'

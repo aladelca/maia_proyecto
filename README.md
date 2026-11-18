@@ -96,3 +96,7 @@ Las pruebas de integración de señales y entrenamiento usan los EDF reales del 
 El [plan de implementación](plans/20261020-1943-infraestructura-local-sleep-edfx-mlflow.md) conserva el avance y las ampliaciones pendientes. La evaluación final del test reservado, el análisis Telemetry y la integración para EDF nuevos permanecen pendientes.
 
 Datos y licencia: [Sleep-EDFx 1.0.0 en PhysioNet](https://physionet.org/content/sleep-edfx/1.0.0/), Open Data Commons Attribution License 1.0. Conservar las citas y atribución indicadas por el repositorio de origen al publicar resultados.
+
+## Laboratorio desplegado
+
+El frontend en Vercel permite procesar una noche preparada, ver su hipnograma y descargar las probabilidades por época. AWS ejecuta la inferencia con el campeón versionado en S3. El entrenamiento bajo demanda se realiza en EC2 y registra cada ajuste en MLflow. [Abrir el laboratorio](https://maia-sueno-dev-60306.vercel.app) · [Despliegue y operación](docs/cloud-operations.md)
