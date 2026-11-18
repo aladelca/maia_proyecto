@@ -1,0 +1,31 @@
+#!/bin/bash
+set -eu
+cat > /usr/local/bin/maia-training <<'MAIA_TRAINING'
+#!/bin/bash
+set -Eeuo pipefail
+exec > >(tee -a /var/log/maia-training.log) 2>&1
+finish() {
+  rc=$?
+  trap - EXIT
+  printf '{"exit_code":%s}\n' "$rc" >/tmp/maia-exit.json
+  aws s3 cp /var/log/maia-training.log 's3://${bucket}/candidates/${job}/attempts/${attempt}/boot.log' || true
+  aws s3 cp /tmp/maia-exit.json 's3://${bucket}/candidates/${job}/attempts/${attempt}/exit.json' || true
+  shutdown -P now
+}
+trap finish EXIT
+export AWS_DEFAULT_REGION='${region}' AWS_REGION='${region}'
+minutes=90
+if [[ '${mode}' == tune ]]; then minutes=720; fi
+shutdown -P +"$minutes"
+command -v aws >/dev/null || dnf install -y awscli2
+systemctl enable --now docker
+aws ecr get-login-password | docker login --username AWS --password-stdin '${registry}'
+docker pull '${image}'
+export CLOUD_INPUTS="$(printf '%s' '${inputs}' | base64 -d)"
+export AWS_BATCH_JOB_ID='${job}' TRAIN_IMAGE='${image}' MLFLOW_TRACKING_URI='${tracking}'
+docker run --rm --network host --log-driver=awslogs --log-opt 'awslogs-region=${region}' --log-opt 'awslogs-group=${group}' --log-opt 'awslogs-stream=${job}' \
+  -e CLOUD_INPUTS -e AWS_REGION -e AWS_DEFAULT_REGION -e AWS_BATCH_JOB_ID -e TRAIN_IMAGE -e MLFLOW_TRACKING_URI '${image}' --mode '${mode}'
+
+MAIA_TRAINING
+chmod 700 /usr/local/bin/maia-training
+systemd-run --no-block --unit=maia-training --property=After=cloud-final.service /usr/local/bin/maia-training
