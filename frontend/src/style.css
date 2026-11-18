@@ -1,0 +1,151 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #162f38;
+  background: #f3f6f4;
+  font-size: 16px;
+}
+* {
+  box-sizing: border-box;
+}
+header {
+  background: #182e38;
+  color: #fff;
+  padding: 18px max(5vw, 24px);
+  display: flex;
+  align-items: center;
+  gap: 19px;
+}
+header strong {
+  font-size: 1.45rem;
+  letter-spacing: 0.13em;
+}
+header span {
+  border-left: 1px solid #667c81;
+  padding-left: 18px;
+  color: #d7e7e6;
+}
+.link {
+  margin-left: auto;
+  background: transparent;
+  padding: 6px;
+  color: #e9f3ed;
+}
+main {
+  max-width: 1000px;
+  margin: auto;
+  padding: 52px 28px 70px;
+}
+.intro {
+  max-width: 690px;
+}
+.eyebrow {
+  color: #186f65;
+  font-weight: 700;
+  font-size: 0.77rem;
+  letter-spacing: 0.12em;
+}
+h1 {
+  font-size: clamp(2.5rem, 6vw, 4.75rem);
+  font-family: Georgia, serif;
+  letter-spacing: -0.045em;
+  line-height: 1.04;
+  margin: 14px 0;
+}
+h2 {
+  font-size: 1.6rem;
+  margin: 0 0 14px;
+}
+.intro > p:last-child,
+.panel > p {
+  line-height: 1.6;
+  color: #445f66;
+}
+.panel {
+  background: #fff;
+  border: 1px solid #cddbd6;
+  border-radius: 14px;
+  padding: clamp(22px, 4vw, 38px);
+  margin-top: 28px;
+}
+button {
+  background: #146c62;
+  border: 0;
+  border-radius: 6px;
+  padding: 12px 17px;
+  color: white;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid #e8a522;
+  outline-offset: 3px;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.secondary {
+  background: #e5f2ee;
+  color: #124f48;
+}
+.actions,
+.stages {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.stages {
+  margin: 18px 0 24px;
+}
+.stages div {
+  border-left: 3px solid #86b9ae;
+  padding: 3px 14px;
+  display: grid;
+  gap: 4px;
+}
+.stages span,
+label {
+  font-size: 0.9rem;
+  color: #49636a;
+}
+input[type="file"] {
+  display: block;
+  width: 100%;
+  padding: 18px 10px;
+  border: 1px dashed #8da59d;
+  border-radius: 6px;
+  margin: 8px 0 20px;
+}
+svg {
+  width: 100%;
+  height: auto;
+}
+svg line {
+  stroke: #dfe8e4;
+}
+svg text {
+  font: 13px system-ui;
+  fill: #38565e;
+}
+[role="alert"] {
+  color: #9b362a !important;
+}
+header button {
+  font-size: 0.82rem;
+}
+@media (max-width: 550px) {
+  header {
+    gap: 10px;
+  }
+  header span {
+    font-size: 0.8rem;
+  }
+  main {
+    padding: 32px 16px;
+  }
+  .actions button {
+    width: 100%;
+  }
+}
