@@ -34,6 +34,7 @@ from sleep_staging.provenance import (
     hash_file,
     write_json,
 )
+from sleep_staging.refinement_data import class_weights
 from sleep_staging.research import paired_subject_bootstrap
 
 CLASSES_5 = CLASSES["task_5"]
@@ -67,6 +68,7 @@ class LSTMConfig(BaseModel):
     patience: int = Field(default=7, ge=1)
     min_delta: float = Field(default=1e-4, ge=0)
     weight_decay: float = Field(default=1e-4, ge=0)
+    weight_power: float = Field(default=1, ge=0, le=1)
     learning_rates: list[float] = Field(default_factory=lambda: [1e-3, 3e-4])
     variants: list[WindowSpec] = Field(
         default_factory=lambda: [
@@ -170,7 +172,12 @@ def _restore_rng(value: dict) -> None:
 
 @contextmanager
 def tracked_run(
-    directory: Path, name: str, purpose: str, identity: str, nested: bool = True
+    directory: Path,
+    name: str,
+    purpose: str,
+    identity: str,
+    nested: bool = True,
+    device: str = "mps",
 ) -> Iterator[str]:
     directory.mkdir(parents=True, exist_ok=True)
     journal = directory / "mlflow-run.json"
@@ -182,7 +189,7 @@ def tracked_run(
                 "purpose": purpose,
                 "identity": identity,
                 "test_evaluated": "false",
-                "device": "mps",
+                "device": device,
             }
         )
         yield run.info.run_id
@@ -278,8 +285,7 @@ def fit_sequence(
     values = torch.from_numpy(scaler.transform(data.values)).to(device)
     targets = torch.from_numpy(data.labels).to(device)
     neighbors, padding = sequence_index(data.frame, spec.length, spec.centered)
-    counts = np.bincount(data.labels[train_rows], minlength=5)
-    weights = len(train_rows) / (5 * counts)
+    weights = class_weights(data.labels[train_rows], cfg.weight_power)
     criterion = torch.nn.CrossEntropyLoss(
         weight=torch.tensor(weights, dtype=torch.float32, device=device)
     )
