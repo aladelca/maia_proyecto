@@ -127,6 +127,7 @@ El 18 de noviembre de 2026 se comprobó el flujo en `us-west-2` con la noche pú
 | Cinco ejemplos simultáneos | p95 de aceptación de 0,59 s y p95 de finalización de 6,51 s. Es una medición de cinco trabajos. |
 | Primer refit en EC2 | 261 árboles en 318,9 s de ajuste. Run hijo `76b5b4f69a8f4ff196ce666adf83cdd1`, experimento `sleep-cassette-cloud` en SageMaker MLflow. |
 | Comparación del candidato Linux con el campeón local | 841 de 841 etiquetas iguales y diferencia máxima de probabilidad de 8,7 × 10⁻¹⁹ antes de serializar a JSON. |
+| Segundo refit y recuperación | El segundo ajuste tardó 277,1 s y produjo el mismo SHA-256 de modelo. Al reanudar la campaña en una instancia nueva, se conservó el run hijo `a4b951281b78499bb06ccc8153da6e52` y su checkpoint. Se verificó que las dos campañas quedaron finalizadas en MLflow y se retiraron las instancias. |
 | Cambio y reversión | La API procesó el ejemplo y la carga con el candidato EC2 `lgbm-a0f29b53352d6156`. Se restauró el campeón `lgbm-49f74e944ce5457b`. |
 
 La comparación de la noche verifica portabilidad e implementación. Las métricas de generalización se calculan con los folds por sujeto.
