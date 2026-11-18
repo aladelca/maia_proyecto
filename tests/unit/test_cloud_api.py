@@ -66,7 +66,9 @@ def test_idempotency_and_owner(monkeypatch):
     )
     states.describe_execution.return_value = {"input": params["input"]}
     assert invoke("POST", path, "person-a", body, headers)["statusCode"] == 202
-    states.describe_execution.return_value = {"input": "different"}
+    monkeypatch.setenv("EXAMPLE_VERSION", "new-published-example")
+    assert invoke("POST", path, "person-a", body, headers)["statusCode"] == 202
+    states.describe_execution.return_value = {"input": json.dumps({"example": False})}
     assert invoke("POST", path, "person-a", body, headers)["statusCode"] == 409
     states.describe_execution.return_value = {"status": "RUNNING"}
     assert invoke("GET", path + "/" + job, "person-b")["statusCode"] == 200

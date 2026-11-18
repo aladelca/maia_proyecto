@@ -137,7 +137,9 @@ def start() -> Any:
         if exc.response["Error"]["Code"] != "ExecutionAlreadyExists":
             raise
         existing = states.describe_execution(executionArn=execution(job))
-        if existing["input"] != payload:
+        original = json.loads(existing["input"])
+        same_example = example and original.get("example") is True
+        if original != params and not same_example:
             return jsonify(error="Esta clave ya identifica otra solicitud."), 409
     return jsonify(job_id=job, status_url=f"/v1/predictions/{job}"), 202
 
