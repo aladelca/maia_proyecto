@@ -1,4 +1,97 @@
-# Estadificación del sueño: entorno local
+# Clasificación automática de estadios del sueño
+
+Proyecto de grado de la Maestría en Inteligencia Artificial de la Universidad de los Andes. Integrantes: Carlos Adrián Alarcón Delgado, Andrés Enrique Bautista Pabón y John Janer Buila Ferrin.
+
+**[Abrir la aplicación desplegada](https://maia-sueno-dev-60306.vercel.app)** · [Operación en la nube](docs/cloud-operations.md) · [Modelo final](modelos/README.md) · [Resultados](docs/refinement-results.md) · [Inventario de datos](docs/epoch-inventory.md) · [Dataset Sleep-EDFx](https://physionet.org/content/sleep-edfx/1.0.0/)
+
+## Problema y solución
+
+Para estadificar el sueño, un especialista revisa la polisomnografía (EEG, EOG y EMG) y asigna un estadio a cada época de 30 segundos. Una noche tiene cerca de 900 épocas, así que el proceso toma horas, y la concordancia entre evaluadores ronda el 83 %. En el estadio de transición N1 la concordancia es aún menor.
+
+Este proyecto entrena un modelo que clasifica cada época en cinco estadios (W, N1, N2, N3 y REM) y lo publica como una aplicación web que muestra el hipnograma de la noche:
+
+1. **Datos:** Sleep Cassette de Sleep-EDFx, con 153 noches de 78 sujetos. Se separan 62 sujetos para desarrollo y 16 para la prueba final, sin mezclar noches de una misma persona.
+2. **Variables:** 145 descriptores por época a partir de dos canales de EEG, EOG y EMG, más 290 variables de contexto temporal calculadas con las épocas vecinas.
+3. **Modelo:** LightGBM ajustado mediante validación cruzada anidada por sujeto. Alcanza un **F1 macro de 0,789, una exactitud de 0,830 y un kappa de 0,769** en validación cruzada de cinco folds. Supera a Random Forest, a CatBoost y a las redes LSTM/BiLSTM evaluadas con las mismas particiones.
+4. **Despliegue:** frontend React en Vercel; API, orquestación e inferencia sin servidor en AWS (API Gateway, Lambda, Step Functions y S3); reentrenamiento bajo demanda en EC2 con MLflow. Toda la infraestructura está definida con Terraform.
+
+## Uso de la aplicación
+
+La aplicación es pública y no requiere usuario ni contraseña. Cada pestaña del navegador genera una clave aleatoria de invitado, de modo que un visitante solo puede ver sus propios resultados.
+
+1. Abrir [la aplicación](https://maia-sueno-dev-60306.vercel.app).
+2. Seleccionar **Probar ejemplo público** para procesar la noche SC4001 o cargar el archivo de una noche preparada y pulsar **Generar predicción**.
+3. Esperar el resultado, que suele tardar menos de dos segundos. Se puede recargar la página mientras se procesa.
+4. Revisar el hipnograma, el tiempo en cada estadio y la versión del modelo, y descargar el CSV con la predicción por época.
+
+**Entrada.** Un archivo Parquet de una sola noche, de hasta 3.000 épocas y 32 MiB, con las columnas `recording_id`, `epoch_id`, `onset_s` (múltiplo de 30 s) y `eligible`, más las 145 variables numéricas del manifiesto del modelo. El worker valida el esquema y el SHA-256 antes de predecir. La carga directa de archivos EDF está en desarrollo.
+
+**Salida.** Un JSON con el resumen del trabajo y un CSV con una fila por época:
+
+```text
+recording_id,epoch_id,onset_s,eligible,prediction,prob_W,prob_N1,prob_N2,prob_N3,prob_REM
+SC4001,SC4001:2400000,24000,True,N2,0.0021,0.0473,0.9302,0.0187,0.0017
+```
+
+```json
+{"job_id": "…", "inference_seconds": 1.2, "model_version": "lgbm-49f74e944ce5457b",
+ "preprocessing_id": "sc-w30-context435-v1", "rows": 841, "eligible": 841, "epochs": [ … ]}
+```
+
+Los valores de la fila de ejemplo son ilustrativos. La API REST (`/public/v1`) y sus respuestas se documentan en [docs/cloud-operations.md](docs/cloud-operations.md#api).
+
+## Consideraciones del modelo
+
+- **Tamaño y hardware:** el modelo final es un LightGBM de 261 iteraciones que corre en CPU y no necesita GPU. El worker usa 3.072 MB de memoria y dos hilos.
+- **Tiempos:** una noche de 841 épocas se procesa en 1,83 s. Con cinco noches simultáneas, el percentil 95 del tiempo total fue de 6,51 s.
+- **Carga diferida:** el worker descarga el modelo una vez por contenedor, verifica su SHA-256 y lo reutiliza en las invocaciones siguientes.
+- **Escalabilidad:** Lambda escala de forma automática con las solicitudes y el costo es proporcional al uso. No hay servidores encendidos de forma permanente.
+- **Artefactos:** el modelo no se versiona en Git. [modelos/README.md](modelos/README.md) explica cómo descargarlo, reconstruirlo o reentrenarlo.
+- **Limitaciones:** el recorte de vigilia de ±30 minutos usa las anotaciones de referencia. Por eso el desempeño corresponde a un análisis retrospectivo de noches preparadas, y la evaluación sobre los 16 sujetos de prueba sigue pendiente.
+
+## Parametrización
+
+| Dónde | Parámetro | Uso |
+| --- | --- | --- |
+| `.env` (a partir de `.env.example`) | `MLFLOW_TRACKING_URI` | Servidor de MLflow para la experimentación local |
+| `configs/data/*.yaml` | Cohorte, canales, filtro, `wake_margin_minutes`, `max_epochs_per_recording` | Preparación de los datos |
+| `configs/experiments/*.yaml` | Tarea, canales, modelos, folds, épocas y tamaño de lote | Experimentos de la CLI `sleep-stage` |
+| `configs/research/*.yaml` | Espacios de búsqueda de LightGBM, CatBoost y BiLSTM, paciencia y semilla | Campañas de ajuste |
+| `configs/splits/sc_subjects_v1.csv` | Partición fija por sujeto | Separación desarrollo/prueba |
+| `infra/<stack>/deploy.auto.tfvars.json` | `region`, `origin`, `images`, `inputs` (versión y SHA-256 del modelo), `monthly_budget` | Despliegue con Terraform |
+| Variables de la Lambda API | `JOBS_BUCKET`, `MACHINE_ARN`, `EXAMPLE_KEY`, `EXAMPLE_VERSION`, `EXAMPLE_SHA256` | Bucket de trabajos, flujo y noche de ejemplo |
+| Variables de la Lambda worker | `RELEASE_BUCKET`, `MANIFEST_KEY`, `MANIFEST_VERSION`, `MANIFEST_SHA256`, `OMP_NUM_THREADS` | Versión exacta del modelo y número de hilos |
+| `frontend/dist/config.json` | `api`, `origin` y los datos de Cognito (`issuer`, `clientId`, `login`), generados desde Terraform | Configuración del frontend |
+
+Para cambiar la versión del modelo en producción basta con actualizar `inputs` y aplicar Terraform; no hay que modificar el código. Para volver a la versión anterior se aplica `live_version_arn`.
+
+## Reproducir el despliegue
+
+Requisitos: AWS CLI, Terraform 1.10 o superior, Docker con buildx, Node 22 y uv. Las dependencias de Python están fijadas en `pyproject.toml` y `uv.lock`, y las del frontend en `frontend/package-lock.json`. El procedimiento completo está en [docs/cloud-operations.md](docs/cloud-operations.md):
+
+1. Crear el estado remoto (`infra/scripts/bootstrap.sh`) y aplicar los stacks `platform` y `network`.
+2. Construir y publicar las imágenes `api`, `worker` y `training` (`infra/scripts/push-image.sh`).
+3. Exportar y publicar el modelo (`scripts/export_serving_bundle.py` y `scripts/publish_cloud_inputs.py`).
+4. Aplicar los stacks `training`, `aws` y `vercel`, y compilar el frontend.
+5. Verificar el servicio con `uv run --extra cloud python scripts/smoke_cloud.py --guest`.
+
+Las credenciales de AWS se cargan desde un `.env` local, que no se versiona. El repositorio no contiene secretos.
+
+## Estructura del repositorio
+
+| Carpeta | Contenido |
+| --- | --- |
+| `src/sleep_staging/` | Paquete: datos, características, modelos, evaluación y servicio de inferencia (`serving/`) |
+| `services/api/` | API de la aplicación |
+| `frontend/` | Interfaz web (React + Vite) y pruebas end-to-end con Playwright |
+| `notebooks/` | Auditoría de datos, análisis de variables y campañas de experimentación |
+| `modelos/` | Ficha del modelo final e instrucciones de descarga y reconstrucción |
+| `configs/` | Configuración de datos, experimentos, búsquedas y partición |
+| `scripts/` | Campañas, exportación, publicación y pruebas del servicio |
+| `infra/`, `containers/` | Terraform, scripts de despliegue y Dockerfiles |
+| `docs/`, `tests/` | Documentación, resultados y pruebas automatizadas |
+
+## Experimentación local
 
 Procesamiento y experimentación con **Sleep-EDFx real**: EDF/hipnogramas → épocas de 30 segundos → características o EEG para CNN → validación por sujeto → MLflow.
 
@@ -51,7 +144,7 @@ Random Forest es el ganador por F1 macro en este piloto. Los dos sujetos reserva
 
 ## Nuevas variables y ajuste de CatBoost
 
-La campaña de mejora se revisa en [notebook/04_literature_catboost.ipynb](notebook/04_literature_catboost.ipynb). Compara los 62 sujetos de desarrollo con cinco folds fijos: variables originales, nuevos descriptores, canales adicionales, contexto temporal retrospectivo y ajuste interno de CatBoost por sujeto. El [protocolo y la revisión de literatura](docs/literature-model-improvements.md) documentan los experimentos y sus límites. Los 16 sujetos reservados quedan fuera de la preparación y de la evaluación.
+La campaña de mejora se revisa en [notebooks/04_literature_catboost.ipynb](notebooks/04_literature_catboost.ipynb). Compara los 62 sujetos de desarrollo con cinco folds fijos: variables originales, nuevos descriptores, canales adicionales, contexto temporal retrospectivo y ajuste interno de CatBoost por sujeto. El [protocolo y la revisión de literatura](docs/literature-model-improvements.md) documentan los experimentos y sus límites. Los 16 sujetos reservados quedan fuera de la preparación y de la evaluación.
 
 ```bash
 uv sync --locked --group dev --group notebook --extra boosting --extra dl
@@ -65,7 +158,7 @@ Las nuevas corridas, cachés y el candidato se guardan en `var/research/sc-w30-v
 
 ## LSTM y BiLSTM en MPS
 
-La campaña de [notebook/05_lstm_mps.ipynb](notebook/05_lstm_mps.ipynb) compara un control neuronal de un segmento, una LSTM con 15 segmentos pasados y una BiLSTM con 15 segmentos centrados. Usa las 145 variables multicanal por segmento, los mismos sujetos y objetivos de desarrollo y cinco folds fijos. Dentro de cada entrenamiento externo se seleccionan learning rate y número de épocas con un holdout de sujetos; después se reentrena sin consultar el fold externo.
+La campaña de [notebooks/05_lstm_mps.ipynb](notebooks/05_lstm_mps.ipynb) compara un control neuronal de un segmento, una LSTM con 15 segmentos pasados y una BiLSTM con 15 segmentos centrados. Usa las 145 variables multicanal por segmento, los mismos sujetos y objetivos de desarrollo y cinco folds fijos. Dentro de cada entrenamiento externo se seleccionan learning rate y número de épocas con un holdout de sujetos; después se reentrena sin consultar el fold externo.
 
 ```bash
 env -u SLEEP_STAGING_ROOT PYTORCH_ENABLE_MPS_FALLBACK=0 \
@@ -82,7 +175,7 @@ Resultado: la mejor red fue **BiLSTM, F1 macro 0,7687 ± 0,0211**. En esa campa�
 
 ## Ajuste de LightGBM y BiLSTM
 
-LightGBM ajustado obtuvo el mayor F1 macro en desarrollo, **0,7893**. Frente a su referencia, LightGBM pasó de 0,7822 a 0,7893 y BiLSTM de 0,7687 a 0,7800. Se compararon 12 configuraciones LightGBM y seis BiLSTM en cinco folds por sujeto. Las 120 corridas de entrenamiento están en [MLflow local](http://127.0.0.1:5002/#/experiments/3). El [informe](docs/refinement-results.md) incluye hiperparámetros finales y comandos de reproducción. El [notebook ejecutado](notebook/06_lgbm_bilstm_tuning.ipynb) muestra las curvas y el F1 por estadio.
+LightGBM ajustado obtuvo el mayor F1 macro en desarrollo, **0,7893**. Frente a su referencia, LightGBM pasó de 0,7822 a 0,7893 y BiLSTM de 0,7687 a 0,7800. Se compararon 12 configuraciones LightGBM y seis BiLSTM en cinco folds por sujeto. Las 120 corridas de entrenamiento están en [MLflow local](http://127.0.0.1:5002/#/experiments/3). El [informe](docs/refinement-results.md) incluye hiperparámetros finales y comandos de reproducción. El [notebook ejecutado](notebooks/06_lgbm_bilstm_tuning.ipynb) muestra las curvas y el F1 por estadio.
 
 ## Validación
 

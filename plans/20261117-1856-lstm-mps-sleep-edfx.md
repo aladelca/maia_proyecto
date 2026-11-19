@@ -1,6 +1,6 @@
 # Plan de experimentación LSTM en MPS para Sleep-EDFx
 
-Estado: implementación y campaña experimental completadas. Fecha: 17 de noviembre de 2026. Los resultados y la auditoría están en [el informe](../docs/lstm-mps-results.md) y [el notebook ejecutado](../notebook/05_lstm_mps.ipynb).
+Estado: implementación y campaña experimental completadas. Fecha: 17 de noviembre de 2026. Los resultados y la auditoría están en [el informe](../docs/lstm-mps-results.md) y [el notebook ejecutado](../notebooks/05_lstm_mps.ipynb).
 
 ## Objetivo
 
@@ -150,7 +150,7 @@ Carpetas nuevas previstas: `runs/<identidad>/fold-<n>/`, `candidate/`, `figures/
 
 | Ruta | Acción prevista | Responsabilidad |
 | --- | --- | --- |
-| `notebook/05_lstm_mps.ipynb` | Crear primero en la implementación | Definir hipótesis/métricas, mostrar cohortes, configuraciones, curvas, leaderboard, ganador y limitaciones. Por defecto, modo revisión; entrenamiento explícito. |
+| `notebooks/05_lstm_mps.ipynb` | Crear primero en la implementación | Definir hipótesis/métricas, mostrar cohortes, configuraciones, curvas, leaderboard, ganador y limitaciones. Por defecto, modo revisión; entrenamiento explícito. |
 | `configs/research/lstm-mps.yaml` | Crear | Tres variantes, dos learning rates, semillas, ventanas, escalado, MPS obligatorio y límites de entrenamiento. |
 | `src/sleep_staging/lstm_data.py` | Crear | Índices de bloques/vecinos, targets elegibles, padding, escalado y Dataset de ventanas por lotes. |
 | `src/sleep_staging/models/lstm.py` | Crear | Red LSTM/BiLSTM, head según posición objetivo y comprobaciones MPS. |
@@ -169,7 +169,7 @@ No se prevén cambios en esquemas persistentes, dependencias ni en `ExperimentCo
 ## Pasos de implementación
 
 1. Crear una rama nueva antes de tocar código. Si PR #4 sigue abierto, partir de su HEAD y preparar un PR apilado contra su rama; si ya está fusionado, partir de `origin/main` actualizado. Evitar añadir la nueva campaña al PR anterior.
-2. Generar `notebook/05_lstm_mps.ipynb` con el script de la skill de experimentación, modo `pytorch`, clasificación, target `task_5`, métricas `f1_macro`, `accuracy`, `kappa`. Sustituir el KFold de la plantilla por los splits congelados y su fallback de dispositivo por MPS obligatorio antes de ejecutar celdas.
+2. Generar `notebooks/05_lstm_mps.ipynb` con el script de la skill de experimentación, modo `pytorch`, clasificación, target `task_5`, métricas `f1_macro`, `accuracy`, `kappa`. Sustituir el KFold de la plantilla por los splits congelados y su fallback de dispositivo por MPS obligatorio antes de ejecutar celdas.
 3. Implementar configuración, índice de secuencias y validaciones de datos; probar límites/padding y escalado antes del entrenamiento.
 4. Implementar red, trainer MPS y preflight con datos reales; probar ambas arquitecturas y reload.
 5. Incorporar selección interna, refit externo, persistencia y MLflow; comprobar una interrupción y reanudación sin duplicar resultados terminados.

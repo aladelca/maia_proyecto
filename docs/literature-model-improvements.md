@@ -1,6 +1,6 @@
 # Campaña de mejora de modelos basada en literatura
 
-Fecha de revisión: 15 de noviembre de 2026. Notebook: `notebook/04_literature_catboost.ipynb`.
+Fecha de revisión: 15 de noviembre de 2026. Notebook: `notebooks/04_literature_catboost.ipynb`.
 
 ## Decisiones derivadas de la revisión
 
