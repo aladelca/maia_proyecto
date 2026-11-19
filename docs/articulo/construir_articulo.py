@@ -24,7 +24,7 @@ from docx.shared import Cm, Pt
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "Articulo_final_borrador.docx"
+OUT = HERE / "Articulo_final.docx"
 FONT = "Times New Roman"
 
 doc = Document()
@@ -521,7 +521,9 @@ para(
     "una instancia EC2 efímera, registra el experimento en SageMaker MLflow y produce un "
     "candidato que solo se promueve si reproduce las predicciones de referencia. Cada versión del "
     "flujo apunta a una versión fija del modelo, lo que permite revertir un cambio. "
-    "[PENDIENTE: describir la carga directa de archivos EDF, en desarrollo.]"
+    "En la versión actual, la aplicación recibe una noche ya preparada en formato Parquet, con "
+    "las 145 variables por época y su metadato de procedencia; la carga directa de archivos EDF, "
+    "que exige además detectar el periodo de sueño sin anotaciones, está en desarrollo."
 )
 
 # 4 ------------------------------------------------------------------------------------------
