@@ -8,10 +8,10 @@ Tiempo: 15 minutos de exposición + 5 de preguntas. Presentación: [Sustentació
 | --- | --- | --- | --- |
 | Problema y objetivo | 1 Portada · 2 Problema · 3 Objetivo · 4 Datos | John Janer Buila | 3 min 30 s |
 | Construcción de la solución | 5 Arquitectura · 6 Variables · 7 Modelos · 8 Resultados en desarrollo | Carlos Adrián Alarcón | 4 min |
-| Resultados finales | 9 Prueba final · 10 Por estadio | John Janer Buila | 2 min 15 s |
-| Despliegue y demo | 11 Despliegue · 12 Demo en vivo · 13 Limitaciones | Andrés Bautista | 4 min 15 s |
-| Cierre | 14 Conclusiones | John Janer Buila | 30 s |
-| **Total** | | | **14 min 30 s** |
+| Resultados finales | 9 Prueba final · 10 Por estadio · 11 Hipnograma | John Janer Buila | 2 min 30 s |
+| Despliegue y demo | 12 Despliegue · 13 Demo en vivo · 14 Limitaciones | Andrés Bautista | 4 min 15 s |
+| Cierre | 15 Conclusiones | John Janer Buila | 30 s |
+| **Total** | | | **14 min 45 s** |
 
 Cada transición nombra a quien sigue («Le paso la palabra a…»). Ensayar al menos dos veces completas con cronómetro.
 
