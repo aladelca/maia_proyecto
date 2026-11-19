@@ -258,7 +258,7 @@ Todos los siguientes archivos son nuevos. Crear los `__init__.py` necesarios par
 | `src/sleep_staging/tracking.py`, `experiments.py` | Cliente MLflow, runs y entrenamiento por folds. |
 | `src/sleep_staging/evaluation.py`, `inference.py` | Métricas, informes y recarga/predicción por lotes. |
 | `scripts/backup_mlflow.py` | Copia consistente y manifiesto de integridad, con servidor detenido. |
-| `notebook/01_data_audit.ipynb`, `02_feature_analysis.ipynb`, `03_experiment_review.ipynb` | Exploración y revisión mediante llamadas al paquete. |
+| `notebooks/01_data_audit.ipynb`, `02_feature_analysis.ipynb`, `03_experiment_review.ipynb` | Exploración y revisión mediante llamadas al paquete. |
 | `tests/conftest.py`, `tests/fixtures/` | Anotaciones para pruebas de lógica; integración y entrenamiento con los EDF reales descargados. |
 | `tests/unit/test_config.py`, `test_labels_epochs.py`, `test_features.py`, `test_splits.py`, `test_provenance.py` | Contratos, señales y aislamiento. |
 | `tests/integration/test_mlflow.py`, `test_pipeline.py`, `test_inference.py` | Servicio temporal, pipeline y recarga. |

@@ -1,6 +1,6 @@
 # Resultados de la campaña de mejora de modelos
 
-Campaña iniciada el 15 de noviembre y cerrada el 16 de noviembre de 2026. Notebook ejecutado: [04_literature_catboost.ipynb](../notebook/04_literature_catboost.ipynb). Método y fuentes: [revisión de literatura y protocolo](literature-model-improvements.md).
+Campaña iniciada el 15 de noviembre y cerrada el 16 de noviembre de 2026. Notebook ejecutado: [04_literature_catboost.ipynb](../notebooks/04_literature_catboost.ipynb). Método y fuentes: [revisión de literatura y protocolo](literature-model-improvements.md).
 
 El candidato seleccionado es **LightGBM · contexto**, con **F1 macro CV 0,7822 ± 0,0161**, accuracy 0,8167 y kappa 0,7539. Mejora el F1 macro medio en **12.78 puntos** frente a Random Forest recalculado sobre los mismos segmentos.
 

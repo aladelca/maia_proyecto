@@ -53,7 +53,7 @@ Presupuesto científico: LightGBM 60 candidatos internos + cinco refits externos
 
 | Ruta | Acción y responsabilidad |
 | --- | --- |
-| `notebook/06_lgbm_bilstm_tuning.ipynb` | Crear primero con plantilla; revisión reproducible, espacio real, curvas, leaderboard y ganador. |
+| `notebooks/06_lgbm_bilstm_tuning.ipynb` | Crear primero con plantilla; revisión reproducible, espacio real, curvas, leaderboard y ganador. |
 | `configs/research/refinement.yaml` | Crear: doce configuraciones LGBM y seis BiLSTM. |
 | `src/sleep_staging/refinement_data.py` | Crear: vistas normalizadas/contexto, pesos de clase y F1 interno eficiente. |
 | `src/sleep_staging/booster_worker.py` | Crear: entrenamiento/predicción LightGBM en proceso CPU sin importar PyTorch; caché de entrada verificada. |
