@@ -4,6 +4,10 @@ terraform {
   required_providers { aws = { source = "hashicorp/aws", version = "~> 6.0" } }
 }
 variable "region" { default = "us-west-2" }
+variable "edf_lgbm_enabled" {
+  type    = bool
+  default = false
+}
 variable "live_version_arn" { default = null }
 variable "origin" { type = string }
 variable "images" { type = map(string) }
@@ -75,7 +79,7 @@ resource "aws_lambda_function" "app" {
   timeout       = each.key == "worker" ? 300 : 20
   environment {
     variables = merge({ JOBS_BUCKET = local.bucket }, each.key == "api" ? {
-      MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256, EDF_ENABLED = local.edf_enabled ? "1" : "0"
+      MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256, EDF_ENABLED = local.edf_enabled ? "1" : "0", EDF_LGBM_ENABLED = var.edf_lgbm_enabled ? "1" : "0"
       } : {
       RELEASE_BUCKET = local.release, MANIFEST_KEY = local.obj.manifest.key, MANIFEST_VERSION = local.obj.manifest.version, MANIFEST_SHA256 = local.obj.manifest.sha256, OMP_NUM_THREADS = "2", OPENBLAS_NUM_THREADS = "1", EDF_MODEL_KEY = try(local.obj.edf_model.key, ""), EDF_MODEL_VERSION = try(local.obj.edf_model.version, ""), EDF_MODEL_SHA256 = try(local.obj.edf_model.sha256, "")
     })
@@ -189,7 +193,7 @@ resource "aws_s3_bucket_cors_configuration" "jobs" {
   }
 }
 output "public_config" {
-  value = { api = aws_apigatewayv2_api.api.api_endpoint, edfEnabled = local.edf_enabled, issuer = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.users.id}", clientId = aws_cognito_user_pool_client.web.id, login = "https://${aws_cognito_user_pool_domain.login.domain}.auth.${var.region}.amazoncognito.com", origin = var.origin }
+  value = { api = aws_apigatewayv2_api.api.api_endpoint, edfEnabled = local.edf_enabled, edfLgbmEnabled = var.edf_lgbm_enabled, issuer = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.users.id}", clientId = aws_cognito_user_pool_client.web.id, login = "https://${aws_cognito_user_pool_domain.login.domain}.auth.${var.region}.amazoncognito.com", origin = var.origin }
 }
 output "user_pool" { value = aws_cognito_user_pool.users.id }
 

@@ -17,6 +17,15 @@ El entorno ofrece carga EDF cuando el manifiesto incluye el modelo de registro c
 
 El exportador escribe la noche de ejemplo en `var/cloud/bundle/example.parquet`. Un operador puede recuperarla con `aws s3api get-object` usando `buckets.releases` y el par `key/version` de `objects["example.parquet"]` en `inputs.json`.
 
+### Cinco estadios con LightGBM desde un EDF
+
+Cuando el entorno ofrece **LightGBM · 5 estadios**, el formulario EDF permite elegirlo. La release `sc-w30-context435-v1` requiere EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, además de EMG submental en envolvente a 1 Hz. Procesa los intervalos completos de 30 s de todo el registro. Los huecos por Fpz-Cz plano conservan su posición y sus probabilidades quedan vacías. Para ejecutar el mismo modelo en CPU con el paquete de inferencia local.
+
+```bash
+uv run --locked --extra boosting python scripts/predict_edf_lgbm.py \
+  --edf noche.edf --bundle var/cloud/bundle --output hipnograma.csv
+```
+
 ### API
 
 El laboratorio se abre directamente. Las operaciones de la tabla están disponibles bajo `/public/v1`. Para las cargas y predicciones, el navegador genera una clave aleatoria de 32 bytes, la guarda durante la vida de la pestaña y la envía en la cabecera `X-Guest-Token` como 64 caracteres hexadecimales en minúsculas. Recargar la página conserva el acceso al resultado. Otra persona puede abrir el laboratorio y ejecutar su propia predicción. Las integraciones que ya usan Cognito pueden seguir usando `/v1` con su token de acceso.
@@ -27,6 +36,8 @@ El laboratorio se abre directamente. Las operaciones de la tabla están disponib
 | `POST /public/v1/uploads` con `{"size": bytes,"sha256": digest}` | Formulario firmado válido diez minutos. Enviar sus campos y, al final, el archivo. Conservar la cabecera S3 `x-amz-version-id`. |
 | `POST /public/v1/predictions` con cabecera UUID `Idempotency-Key` | Acepta `{"example":"default"}` o `{"upload_id":"…","version_id":"…"}`. Devuelve HTTP 202 y `status_url`. Reutilizar la clave con otro archivo devuelve HTTP 409. |
 | `GET /public/v1/predictions/{job}` | Estado y enlaces temporales al JSON y al CSV. Consultar de nuevo para renovar los enlaces. |
+
+En ambas solicitudes de carga y predicción para LightGBM se envían `format="edf"` y `model="lightgbm"`. El perfil admite `auto` o `eeg_fpz_cz+eeg_pz_oz+eog+emg`. Para FullNightNet basta con `format="edf"` y el perfil deseado. Cambiar el modelo requiere una clave de idempotencia nueva. La respuesta de LightGBM incluye la versión de la release, el perfil, `window="full"` y las cinco clases.
 
 Las cargas y resultados expiran a partir de siete días por política de S3. El worker fija la versión del archivo y verifica su SHA-256. Verifica también el manifiesto y el modelo antes de cargar el pipeline.
 
@@ -53,6 +64,8 @@ uv run --extra cloud python scripts/publish_cloud_inputs.py \
 ```
 
 `--edf-run` publica los pesos congelados del modelo EDF (`freeze.json` → `edf_model`) en `releases/ibio-edf/<sha256>/model.pt` y añade `objects.edf_model` a `inputs.json`. Con ese puntero, Terraform activa `EDF_ENABLED` en la API, pasa la clave, la versión y el SHA-256 al worker y publica `edfEnabled: true` en `public_config`. Para habilitar EDF en un entorno existente basta con añadir el puntero a `inputs.objects` de `delivery/config/aws.json` y aplicar `infra/aws`.
+
+LightGBM desde EDF utiliza el modelo tabular ya publicado. Para habilitarlo en un entorno, establecer `edf_lgbm_enabled=true` en la configuración AWS aprobada (`delivery/config/aws.json`) y desplegar la API y el worker. Al crear una configuración desde cero, `infra/scripts/configure-app.py --edf-lgbm` incluye ese indicador. Verificar la paridad con `scripts/smoke_cloud.py --edf-model lightgbm --edf noche.edf --edf-expected hipnograma.csv` y las opciones habituales de entorno. Publicar después el valor `edfLgbmEnabled` de `public_config` en `MAIA_PUBLIC_CONFIG` y recompilar el frontend con Vercel. La opción está desactivada por defecto. Para retirarla, desactivar ambos indicadores.
 
 Definir `TF_VAR_project_name` y `TF_VAR_team_id` con el proyecto y equipo Vercel. La primera aplicación crea el proyecto para fijar el origen canónico. En una cuenta normal Terraform crea los roles por componente. En el laboratorio, proporcionar `--existing-role-arn` para la API y `--instance-profile` y `--job-role` para entrenamiento con los roles preexistentes.
 

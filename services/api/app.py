@@ -20,6 +20,7 @@ from sleep_staging.sensor_profiles import (
     MAX_EDF_BYTES,
     MAX_PARQUET_BYTES,
     validate_edf_profile,
+    validate_lgbm_profile,
 )
 
 MAX_BYTES = MAX_PARQUET_BYTES
@@ -64,17 +65,29 @@ def obj_head(key: str, version: str, bucket: str) -> dict:
     return client("s3").head_object(Bucket=bucket, Key=key, VersionId=version)
 
 
-def upload_contract(body: dict) -> tuple[str, int]:
+def upload_contract(body: dict) -> tuple[str, int, str | None]:
     fmt = body.get("format", "parquet")
-    if fmt == "edf":
-        if os.getenv("EDF_ENABLED") != "1":
-            raise ServiceUnavailable(
-                "El modelo EDF aún no está publicado en este entorno."
-            )
-        return fmt, MAX_EDF_BYTES
     if fmt == "parquet":
-        return fmt, MAX_BYTES
-    raise ValueError("Formato de entrada desconocido.")
+        if body.get("model", "lightgbm") != "lightgbm" or "profile" in body:
+            raise ValueError("Modelo o perfil incompatible con Parquet.")
+        return fmt, MAX_BYTES, None
+    if fmt != "edf":
+        raise ValueError("Formato de entrada desconocido.")
+    model = body.get("model", "fullnight")
+    requested = body.get("profile", "auto")
+    if model == "lightgbm":
+        profile = validate_lgbm_profile(requested)
+        enabled = os.getenv("EDF_LGBM_ENABLED")
+    elif model == "fullnight":
+        profile = validate_edf_profile(requested)
+        enabled = os.getenv("EDF_ENABLED")
+    else:
+        raise ValueError("Modelo EDF desconocido.")
+    if enabled != "1":
+        raise ServiceUnavailable(
+            "El modelo EDF seleccionado aún no está publicado en este entorno."
+        )
+    return fmt, MAX_EDF_BYTES, profile
 
 
 @routes.post("/uploads")
@@ -82,7 +95,7 @@ def uploads() -> Any:
     b = request.get_json()
     if not isinstance(b, dict):
         raise ValueError("Solicitud inválida.")
-    fmt, limit = upload_contract(b)
+    fmt, limit, _ = upload_contract(b)
     if (
         type(b.get("size")) is not int
         or not 0 < b["size"] <= limit
@@ -129,10 +142,7 @@ def start() -> Any:
             os.environ[k] for k in ["EXAMPLE_KEY", "EXAMPLE_VERSION", "EXAMPLE_SHA256"]
         )
     else:
-        fmt, limit = upload_contract(b)
-        profile = (
-            validate_edf_profile(b.get("profile", "auto")) if fmt == "edf" else None
-        )
+        fmt, limit, profile = upload_contract(b)
         upload = uid(b.get("upload_id", ""))
         key = f"users/{g.owner}/uploads/{upload}.{fmt}"
         version = b.get("version_id", "")
@@ -152,6 +162,8 @@ def start() -> Any:
     }
     if not example and fmt == "edf":
         params.update(format=fmt, profile=profile)
+        if b.get("model") == "lightgbm":
+            params["model"] = "lightgbm"
     payload = json.dumps(params, sort_keys=True, separators=(",", ":"))
     states = client("stepfunctions")
     try:

@@ -16,8 +16,8 @@ try {
   ) {
     throw new Error();
   }
-  if ("edfEnabled" in config && typeof config.edfEnabled !== "boolean") {
-    throw new Error();
+  for (const flag of ["edfEnabled", "edfLgbmEnabled"]) {
+    if (flag in config && typeof config[flag] !== "boolean") throw new Error();
   }
   config.api = api.href.replace(/\/+$/, "");
 } catch {
@@ -25,5 +25,5 @@ try {
 }
 
 // These are the browser-facing fields in Terraform's public_config output.
-const publicJson = JSON.stringify(config, [...publicStrings, "edfEnabled"]);
+const publicJson = JSON.stringify(config, [...publicStrings, "edfEnabled", "edfLgbmEnabled"]);
 writeFileSync(new URL("../dist/config.json", import.meta.url), publicJson + "\n");

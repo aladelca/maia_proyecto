@@ -3,14 +3,16 @@
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from filelock import FileLock
-from scipy.signal import butter, sosfiltfilt
 
 from sleep_staging.data.edf import read_recording
 from sleep_staging.data.labels import epoch_annotations
-from sleep_staging.features.research import batch_signal_features
+from sleep_staging.features.recording import (
+    FPZ_FLAT,
+    SIGNAL_CHANNELS,
+    recording_features,
+)
 from sleep_staging.provenance import (
     atomic_path,
     environment,
@@ -18,8 +20,6 @@ from sleep_staging.provenance import (
     hash_file,
     write_json,
 )
-
-SIGNAL_CHANNELS = ["eeg_fpz_cz", "eeg_pz_oz", "eog", "emg"]
 
 
 def development_recordings(
@@ -66,56 +66,9 @@ def _record_features(record: dict, source_root: Path, margin: int) -> pd.DataFra
     epochs["epoch_id"] = (
         record["recording_id"] + ":" + epochs.onset_sample_eeg.astype(str)
     )
-    features: dict[str, np.ndarray] = {}
-    fpz_flat = np.zeros(len(epochs), dtype=bool)
-    for channel in SIGNAL_CHANNELS:
-        signal = signals.pop(channel)
-        values = np.asarray(signal.values, dtype=np.float64)
-        if not np.isfinite(values).all():
-            raise ValueError(
-                f"Non-finite signal in {record['recording_id']}:{channel}."
-            )
-        if signal.kind != "emg_envelope":
-            low, high = (
-                (0.3, 35)
-                if signal.kind == "eeg"
-                else (0.3, 15)
-                if signal.kind == "eog"
-                else (10, 45)
-            )
-            values = sosfiltfilt(
-                butter(4, [low, high], fs=signal.sfreq, btype="bandpass", output="sos"),
-                values,
-            )
-        batches: dict[str, list[np.ndarray]] = {}
-        samples = int(30 * signal.sfreq)
-        for start in range(0, len(epochs), 128):
-            onsets = epochs.onset_s.iloc[start : start + 128].to_numpy()
-            array = np.stack(
-                [
-                    values[
-                        int(round(onset * signal.sfreq)) : int(
-                            round(onset * signal.sfreq)
-                        )
-                        + samples
-                    ].astype(np.float32)
-                    for onset in onsets
-                ]
-            )
-            if array.shape[1] != samples:
-                raise ValueError("Incomplete signal epoch.")
-            for name, column in batch_signal_features(
-                array, signal.sfreq, signal.kind
-            ).items():
-                batches.setdefault(name, []).append(column.astype(np.float32))
-        for name, parts in batches.items():
-            features[f"{channel}__{signal.kind}__{name}"] = np.concatenate(parts)
-        if channel == "eeg_fpz_cz":
-            fpz_flat = features[f"{channel}__{signal.kind}__flat"].astype(bool)
-        del values, signal
-    result = pd.concat([epochs, pd.DataFrame(features)], axis=1)
-    # Same eligibility as the original single-Fpz protocol; other-channel flatness is a feature.
-    return result[~fpz_flat].reset_index(drop=True)
+    features = recording_features(signals, epochs.onset_s.to_numpy())
+    result = pd.concat([epochs, features], axis=1)
+    return result[~features[FPZ_FLAT].astype(bool)].reset_index(drop=True)
 
 
 def build_research_dataset(
@@ -139,6 +92,7 @@ def build_research_dataset(
             for name in [
                 "research_data.py",
                 "features/research.py",
+                "features/recording.py",
                 "features/extract.py",
                 "data/edf.py",
                 "data/labels.py",
