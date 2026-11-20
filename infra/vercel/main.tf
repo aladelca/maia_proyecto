@@ -24,6 +24,8 @@ resource "vercel_project" "web" {
     repo              = var.repository
     production_branch = "main"
   }
+  # Operators set the browser configuration in Vercel for Production and Preview.
+  lifecycle { ignore_changes = [environment] }
 }
 
 # Git takes over the production alias. Retain the previous release for rollback.
