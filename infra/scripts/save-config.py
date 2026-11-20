@@ -14,7 +14,7 @@ fields = {
         "live_version_arn",
         "region",
     },
-    "vercel": {"project_name", "team_id", "publish"},
+    "vercel": {"project_name", "team_id", "publish", "repository"},
     "training": {
         "region",
         "subnets",

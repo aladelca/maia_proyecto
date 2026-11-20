@@ -5,24 +5,32 @@ terraform {
 }
 variable "team_id" { type = string }
 variable "project_name" { type = string }
+# Older saved tfvars contain publish. Git now controls publication.
 variable "publish" { default = true }
+variable "repository" { default = "aladelca/maia_proyecto" }
 provider "vercel" { team = var.team_id }
+
 resource "vercel_project" "web" {
-  name    = var.project_name
-  team_id = var.team_id
+  name                                 = var.project_name
+  team_id                              = var.team_id
+  root_directory                       = "frontend"
+  framework                            = "vite"
+  install_command                      = "npm ci"
+  output_directory                     = "dist"
+  node_version                         = "22.x"
+  enable_affected_projects_deployments = false
+  git_repository = {
+    type              = "github"
+    repo              = var.repository
+    production_branch = "main"
+  }
 }
-data "vercel_project_directory" "site" {
-  count = var.publish ? 1 : 0
-  path  = "../../frontend/dist"
+
+# Git takes over the production alias. Retain the previous release for rollback.
+removed {
+  from = vercel_deployment.live
+  lifecycle { destroy = false }
 }
-resource "vercel_deployment" "live" {
-  count       = var.publish ? 1 : 0
-  project_id  = vercel_project.web.id
-  team_id     = var.team_id
-  files       = data.vercel_project_directory.site[0].files
-  path_prefix = data.vercel_project_directory.site[0].path
-  production  = true
-  lifecycle { create_before_destroy = true }
-}
+
 output "project" { value = vercel_project.web.name }
-output "deployment" { value = try(vercel_deployment.live[0].url, null) }
+output "deployment" { value = "${vercel_project.web.name}.vercel.app" }

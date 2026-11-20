@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:vercel": "npm run build && node scripts/write-public-config.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

@@ -7,17 +7,15 @@ on:
       - src/sleep_staging/**
       - services/**
       - containers/**
-      - frontend/**
       - infra/aws/**
-      - infra/vercel/**
-      - infra/scripts/**
-      - ci/**
+      - infra/scripts/init.sh
+      - infra/scripts/push-image.sh
+      - ci/check-plan.py
+      - ci/set-images.py
       - scripts/smoke_cloud.py
       - pyproject.toml
       - uv.lock
       - .dockerignore
-      - .github/workflows/ci.yml
-      - .github/workflows/deploy.yml
   workflow_dispatch:
     inputs:
       e2e:
@@ -43,7 +41,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   deploy:
-    name: Inferencia AWS y frontend Vercel
+    name: Inferencia AWS
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -91,6 +89,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: inputs.e2e || vars.RUN_E2E == 'true'
         with:
           node-version: 22
           cache: npm
@@ -106,7 +105,7 @@ jobs:
           backend=true
           if [ "$GITHUB_EVENT_NAME" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null &&
             git diff --quiet "$BEFORE" "$GITHUB_SHA" -- src/sleep_staging services containers infra/aws \
-              infra/scripts ci pyproject.toml uv.lock .dockerignore .github/workflows/deploy.yml; then
+              infra/scripts ci/check-plan.py ci/set-images.py pyproject.toml uv.lock .dockerignore; then
             backend=false
           fi
           echo "backend=$backend" | tee -a "$GITHUB_OUTPUT"
@@ -118,7 +117,6 @@ jobs:
           mkdir -p var/cloud
           aws s3api get-object --bucket "$research" --key delivery/config/aws.json "$CONFIG" \
             --query ETag --output text > var/cloud/aws.etag
-          aws s3 cp --quiet "s3://$research/delivery/config/vercel.json" infra/vercel/deploy.auto.tfvars.json
           cp "$CONFIG" var/cloud/previous-aws.json
           if jq -e '.live_version_arn // empty' "$CONFIG" >/dev/null; then
             echo "::warning::live_version_arn fija Step Functions en una versión anterior; el worker nuevo no recibirá trabajos hasta retirarla."
@@ -178,18 +176,6 @@ jobs:
             --if-match "$(cat var/cloud/aws.etag)" >/dev/null ||
             { echo "::error::delivery/config/aws.json cambió durante el despliegue. Revísalo antes de reintentar."; exit 1; }
 
-      - name: Publicar el frontend en Vercel
-        env:
-          VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
-        run: |
-          npm --prefix frontend ci
-          npm --prefix frontend run build
-          cp var/cloud/public-config.json frontend/dist/config.json
-          infra/scripts/init.sh vercel
-          terraform -chdir=infra/vercel plan -input=false -var=publish=true -out=web.tfplan
-          terraform -chdir=infra/vercel show -json web.tfplan | python3 ci/check-plan.py vercel --replaceable vercel_deployment
-          terraform -chdir=infra/vercel apply -input=false web.tfplan
-
       - name: Prueba de navegador
         if: inputs.e2e || vars.RUN_E2E == 'true'
         working-directory: frontend
@@ -198,6 +184,7 @@ jobs:
           DEMO_USERNAME: ${{ secrets.DEMO_USERNAME }}
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
         run: |
+          npm ci
           npx playwright install --with-deps chromium
           npm run test:e2e
 
