@@ -4,7 +4,7 @@ El frontend procesa noches Sleep Cassette preparadas y devuelve W, N1, N2, N3 y 
 
 ## Probar la aplicación
 
-Abre [el laboratorio en Vercel](https://maia-sueno-dev-60306.vercel.app) y selecciona **Probar ejemplo público**. Puedes recargar la página mientras se procesa la noche. Al terminar verás el hipnograma, el tiempo por estadio, la versión del modelo y la descarga del CSV. Para analizar una noche propia, selecciona el Parquet y pulsa **Generar predicción**.
+Abre [el laboratorio en Vercel](https://maia-sueno-dev-60306.vercel.app) y selecciona **Probar ejemplo público**. Puedes recargar la página mientras se procesa la noche. Al terminar verás el hipnograma, el tiempo por estadio, la versión del modelo y la descarga del CSV. Para analizar una noche propia, selecciona el EDF de la polisomnografía o el Parquet de una noche preparada y pulsa **Generar predicción**. Con un EDF puedes elegir los canales de entrada.
 
 | Entrada | Contrato |
 | --- | --- |
@@ -48,8 +48,11 @@ Para la primera publicación, los artefactos de las campañas locales deben esta
 
 ```bash
 uv run --extra cloud --extra boosting python scripts/export_serving_bundle.py --output var/cloud/bundle
-uv run --extra cloud python scripts/publish_cloud_inputs.py
+uv run --extra cloud python scripts/publish_cloud_inputs.py \
+  --edf-run var/research/ibio-fullnight/development/681a52f21d273bf190ae
 ```
+
+`--edf-run` publica los pesos congelados del modelo EDF (`freeze.json` → `edf_model`) en `releases/ibio-edf/<sha256>/model.pt` y añade `objects.edf_model` a `inputs.json`. Con ese puntero, Terraform activa `EDF_ENABLED` en la API, pasa la clave, la versión y el SHA-256 al worker y publica `edfEnabled: true` en `public_config`. Para habilitar EDF en un entorno existente basta con añadir el puntero a `inputs.objects` de `delivery/config/aws.json` y aplicar `infra/aws`.
 
 Definir `TF_VAR_project_name` y `TF_VAR_team_id` con el proyecto y equipo Vercel. La primera aplicación crea el proyecto para fijar el origen canónico. En una cuenta normal Terraform crea los roles por componente. En el laboratorio, proporcionar `--existing-role-arn` para la API y `--instance-profile` y `--job-role` para entrenamiento con los roles preexistentes.
 
@@ -158,6 +161,8 @@ Para probar desde Chrome, exportar `DEMO_ORIGIN` con la URL pública del entorno
 
 ```bash
 uv run --extra cloud python scripts/smoke_cloud.py --guest
+uv run --extra cloud python scripts/smoke_cloud.py --guest \
+  --edf noche-PSG.edf --edf-expected noche-local.csv   # CSV de serve_fullnight.py --edf
 BROWSER_CHANNEL=chrome npm --prefix frontend run test:e2e
 ```
 
@@ -175,6 +180,7 @@ El 18 de noviembre de 2026 se comprobó el flujo en `us-west-2` con la noche pú
 | Comparación del candidato Linux con el campeón local | 841 de 841 etiquetas iguales y diferencia máxima de probabilidad de 8,7 × 10⁻¹⁹ antes de serializar a JSON. |
 | Segundo refit y recuperación | El segundo ajuste tardó 277,1 s y produjo el mismo SHA-256 de modelo. Al reanudar la campaña en una instancia nueva, se conservó el run hijo `a4b951281b78499bb06ccc8153da6e52` y su checkpoint. Se verificó que las dos campañas quedaron finalizadas en MLflow y se retiraron las instancias. |
 | Cambio y reversión | La API procesó el ejemplo y la carga con el candidato EC2 `lgbm-a0f29b53352d6156`. Se restauró el campeón `lgbm-49f74e944ce5457b`. |
+| Carga EDF (20 de noviembre) | Noche completa SC4121E0 de 48 MiB, 2.786 épocas, modelo `681a52f21d273bf190ae/six`. Con `auto` (dos EEG, EOG y EMG) y con `eeg_pz_oz+eog`, todas las clases coincidieron con `serve_fullnight.py` en CPU local. La diferencia máxima de probabilidad fue de 3,9 × 10⁻⁷. La inferencia tardó 48,4 s en frío (carga de torch y del modelo) y 2,1 s en caliente. Un Parquet enviado como EDF y un perfil sin EEG se rechazaron con mensajes controlados. |
 
 La comparación de la noche verifica portabilidad e implementación. Las métricas de generalización se calculan con los folds por sujeto.
 

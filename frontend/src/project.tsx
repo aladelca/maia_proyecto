@@ -16,7 +16,7 @@ const pipeline = [
   ],
   [
     "Modelos",
-    "LightGBM ajustado con validación cruzada anidada por sujeto para noches preparadas. Para registros EDF completos, una mezcla de LightGBM con redes neuronales sobre las ondas y el espectrograma.",
+    "LightGBM ajustado con validación cruzada anidada por sujeto para noches preparadas. Para registros EDF completos, una red neuronal de registro completo con seis clases: los cinco estadios y movimiento.",
   ],
   [
     "Despliegue",
@@ -107,7 +107,9 @@ export function Project() {
         <p>
           LightGBM multiclase dentro de un pipeline de scikit-learn, entrenado
           con los 62 sujetos de desarrollo: 122 noches y 152.052 épocas
-          etiquetadas. Procesa noches preparadas en Parquet.
+          etiquetadas. Procesa noches preparadas en Parquet. Los registros EDF
+          completos usan la red directa de seis clases de la campaña de registro
+          completo (run 681a52f2), con los canales que elija el visitante.
         </p>
         <div className="kpis">
           {headline.map(([label, value]) => (
