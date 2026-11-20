@@ -1,4 +1,4 @@
-"""Cognito-authenticated API Gateway HTTP v2 adapter; jobs run in Step Functions."""
+"""HTTP API for private guest and Cognito job namespaces."""
 
 import base64
 import hashlib
@@ -12,7 +12,7 @@ from typing import Any
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from flask import Blueprint, Flask, g, jsonify, request
+from flask import Blueprint, Flask, g, jsonify, request, url_for
 from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException, ServiceUnavailable
 
@@ -168,7 +168,9 @@ def start() -> Any:
         same_example = example and original.get("example") is True
         if original != params and not same_example:
             return jsonify(error="Esta clave ya identifica otra solicitud."), 409
-    return jsonify(job_id=job, status_url=f"/v1/predictions/{job}"), 202
+    return jsonify(
+        job_id=job, status_url=url_for(f"{request.blueprint}.status", job=job)
+    ), 202
 
 
 @routes.get("/predictions/<job>")
@@ -205,9 +207,21 @@ def status(job: str) -> Any:
 def create_app() -> Flask:
     app = Flask(__name__)
     app.register_blueprint(routes)
+    app.register_blueprint(routes, name="guest", url_prefix="/public/v1")
 
     @app.before_request
     def owner() -> Any:
+        if request.blueprint == "guest":
+            if request.endpoint == "guest.example_info":
+                return None
+            token = request.headers.get("X-Guest-Token", "")
+            if not re.fullmatch(r"[a-f0-9]{64}", token):
+                return jsonify(
+                    error="Se requiere una clave temporal del navegador."
+                ), 401
+            # A job ID is safe to display. Only the independent guest secret grants access.
+            g.owner = hashlib.sha256(("guest:" + token).encode()).hexdigest()[:32]
+            return None
         sub = request.environ.get("maia.subject")
         if not sub:
             return jsonify(error="Autenticación requerida."), 401

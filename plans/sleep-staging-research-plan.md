@@ -38,7 +38,7 @@ The proposal distinguishes the five sleep stages from an additional output for m
 
 **Movement is rare.** The current cropped development cache contains 115 M epochs among 152,167 rows, from 28 people and 37 nights. The five folds contain 35, 14, 21, 5 and 40 M epochs. Compare a six-class softmax with a training-only class-weighted variant. Report M precision, recall, F1, false positives per night, and support by subject and fold. Recount support after changing the window. [Movement counts by recording](../output/evidencia/resumen/ibio/tables/movement-by-night.csv)
 
-**Why match the EMG comparison?** Blending a historical four-channel tree with the waveform model gave 0.8018 mean fold macro-F1. The paired 95% interval for its pooled macro-F1 difference from the three-channel reference spanned -0.0011 to +0.0027. The tree configuration also differed. Refitting with the same settings isolates the contribution of EMG. [Channel comparison](../notebook/09_transiciones_y_revision.ipynb)
+**Why match the EMG comparison?** Blending a historical four-channel tree with the waveform model gave 0.8018 mean fold macro-F1. The paired 95% interval for its pooled macro-F1 difference from the three-channel reference spanned -0.0011 to +0.0027. The tree configuration also differed. Refitting with the same settings isolates the contribution of EMG. [Channel comparison](../notebooks/09_transiciones_y_revision.ipynb)
 
 **First transfer experiment.** Freeze the three-channel model on Cassette development, then evaluate the 44 Telemetry nights once. Report the two treatment conditions separately and resample each person's two nights together. For EMG experiments, Cassette provides a 1 Hz processed envelope and Telemetry provides a 100 Hz trace. Define and test a common envelope representation or evaluate distinct EMG encoders. [Acquisition details](https://physionet.org/content/sleep-edfx/1.0.0/)
 
@@ -77,7 +77,7 @@ For B and D, draw pairs from different training subjects. Use agreed ISRUC label
 
 **Primary contrast.** Compare the neural-only D and A arms on pooled N1 F1 within DOD-O against published consensus. Report all four arms, their paired differences and the factorial interaction on the same subjects. Treat the fixed blends as secondary. DOD-H provides replication. Stratify by at least four of five scorers agreeing and by lower agreement. Report W-to-N1 and N2-to-N1 errors so that overcalling N1 is visible.
 
-**Review at a fixed budget.** In Cassette, the highest-entropy 10% per night captured 7,190 of 23,750 model/scorer discrepancies (30.3%). On Dreem compare entropy, disagreement between model branches and random selection at the same per-night quota. Score capture and precision separately for model/consensus errors and human disagreement (at most three of five agree). A blinded reader study with timed review and a random control would measure actual corrections and time saved. [Local review study](../notebook/09_transiciones_y_revision.ipynb)
+**Review at a fixed budget.** In Cassette, the highest-entropy 10% per night captured 7,190 of 23,750 model/scorer discrepancies (30.3%). On Dreem compare entropy, disagreement between model branches and random selection at the same per-night quota. Score capture and precision separately for model/consensus errors and human disagreement (at most three of five agree). A blinded reader study with timed review and a random control would measure actual corrections and time saved. [Local review study](../notebooks/09_transiciones_y_revision.ipynb)
 
 ---
 

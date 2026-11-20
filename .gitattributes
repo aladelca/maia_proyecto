@@ -1,1 +1,2 @@
 output/evidencia/*.zip filter=lfs diff=lfs merge=lfs -text
+output/pdf/*.pdf binary

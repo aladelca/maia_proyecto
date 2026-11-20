@@ -1,25 +1,18 @@
 import { test, expect } from "@playwright/test";
 import { resolve } from "node:path";
 
-test("Cognito, ejemplo público, recarga y carga de una noche", async ({
+test("acceso público, recarga, aislamiento entre visitantes y carga de una noche", async ({
   page,
+  browser,
 }) => {
-  const user = process.env.DEMO_USERNAME;
-  const password = process.env.DEMO_PASSWORD;
-  if (!user || !password || !process.env.DEMO_ORIGIN)
-    throw Error("Configura DEMO_ORIGIN, DEMO_USERNAME y DEMO_PASSWORD.");
+  if (!process.env.DEMO_ORIGIN) throw Error("Configura DEMO_ORIGIN.");
   await page.goto("/");
-  await page.getByRole("button", { name: "Iniciar sesión" }).click();
-  const name = page.locator('input[name="username"]:visible').first();
-  await name.fill(user);
-  const pass = page.locator('input[name="password"]:visible').first();
-  if (!(await pass.isVisible()))
-    await page.getByRole("button", { name: /next|siguiente/i }).click();
-  await pass.fill(password);
-  await page
-    .locator("input[type=submit]:visible, button[type=submit]:visible")
-    .last()
-    .click();
+  await expect(
+    page.getByRole("heading", { name: "Analizar una noche" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Iniciar sesión" }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Probar ejemplo público" }).click();
   await expect(page).toHaveURL(/job=/);
   await page.reload();
@@ -27,6 +20,17 @@ test("Cognito, ejemplo público, recarga y carga de una noche", async ({
     timeout: 90000,
   });
   const first = page.url();
+  const guest = await browser.newContext();
+  try {
+    const other = await guest.newPage();
+    await other.goto(first);
+    await expect(other.getByRole("alert")).toContainText(
+      "Recurso no disponible",
+    );
+    await expect(other.getByRole("img", { name: /Hipnograma/ })).toHaveCount(0);
+  } finally {
+    await guest.close();
+  }
   await page
     .locator("#night")
     .setInputFiles(

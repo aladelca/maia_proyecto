@@ -1,6 +1,6 @@
 # LSTM y BiLSTM en MPS: comparación con el campeón
 
-Campaña ejecutada el 17 de noviembre de 2026. Notebook: [05_lstm_mps.ipynb](../notebook/05_lstm_mps.ipynb). Protocolo: [plan de experimentación](../plans/20261117-1856-lstm-mps-sleep-edfx.md).
+Campaña ejecutada el 17 de noviembre de 2026. Notebook: [05_lstm_mps.ipynb](../notebooks/05_lstm_mps.ipynb). Protocolo: [plan de experimentación](../plans/20261117-1856-lstm-mps-sleep-edfx.md).
 
 **LightGBM conserva el mejor F1 macro de desarrollo.** La mejor red fue la BiLSTM centrada, con **0,7687 ± 0,0211**, frente a **0,7822 ± 0,0161** del campeón. La diferencia media entre folds fue de **−0,0135**, aproximadamente −1,35 puntos. El resultado no justifica sustituir el candidato actual.
 

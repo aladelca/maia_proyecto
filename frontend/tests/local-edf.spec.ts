@@ -1,6 +1,80 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
+test("la carga pública de EDF depende del modelo publicado y conserva la selección de canales", async ({
+  page,
+}) => {
+  let edfEnabled = false;
+  await page.route("**/config.json", (route) =>
+    route.fulfill({ json: { api: "", edfEnabled } }),
+  );
+  await page.goto("/");
+  await expect(page.locator("#night")).toHaveAttribute("accept", ".parquet");
+  edfEnabled = true;
+  await page.reload();
+  await expect(page.locator("#night")).toHaveAttribute(
+    "accept", ".parquet,.edf",
+  );
+
+  let token: string | undefined;
+  await page.route("**/public/v1/uploads", (route) => {
+    const req = route.request();
+    token = req.headers()["x-guest-token"];
+    expect(token).toMatch(/^[a-f0-9]{64}$/);
+    expect(req.postDataJSON()).toMatchObject({ format: "edf", size: 5 });
+    return route.fulfill({
+      json: { fields: {}, upload_id: "night", url: "/signed-upload" },
+    });
+  });
+  await page.route("**/signed-upload", (route) =>
+    route.fulfill({
+      status: 201,
+      headers: { "x-amz-version-id": "v1" },
+      body: "",
+    }),
+  );
+  await page.route("**/public/v1/predictions", (route) => {
+    expect(route.request().headers()["x-guest-token"]).toBe(token);
+    expect(route.request().postDataJSON()).toEqual({
+      format: "edf",
+      profile: "eeg_pz_oz",
+      upload_id: "night",
+      version_id: "v1",
+    });
+    return route.fulfill({ json: { job_id: "job-publico" } });
+  });
+  await page.route("**/public/v1/predictions/job-publico", (route) =>
+    route.fulfill({
+      json: {
+        state: "succeeded",
+        files: { json: "/result.json", csv: "/result.csv" },
+      },
+    }),
+  );
+  await page.route("**/result.json", (route) =>
+    route.fulfill({
+      json: {
+        model_version: "edf",
+        profile: "eeg_pz_oz",
+        classes: ["W", "N1", "N2", "N3", "REM", "M"],
+        rows: 1,
+        eligible: 1,
+        epochs: [{ onset_s: 0, prediction: "N2", eligible: true }],
+      },
+    }),
+  );
+  await page.locator("#night").setInputFiles({
+    name: "noche.edf",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("demo\n"),
+  });
+  await page.getByLabel("Canales de entrada").selectOption("eeg_pz_oz");
+  await page.getByRole("button", { name: "Generar predicción" }).click();
+  await expect(page.getByRole("img", { name: /Hipnograma/ })).toBeVisible();
+  await expect(page.getByText("Canales utilizados · Pz-Oz")).toBeVisible();
+  await expect(page.getByText("Movimiento", { exact: true })).toBeVisible();
+});
+
 test("un EDF sin hipnograma produce seis probabilidades y un CSV", async ({
   page,
 }) => {

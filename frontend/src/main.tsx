@@ -1,16 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { UserManager, WebStorageStateStore, User } from "oidc-client-ts";
 import "./style.css";
 
-type Config = {
-  mode?: string;
-  issuer: string;
-  clientId: string;
-  api: string;
-  login: string;
-  origin: string;
-};
+type Config = { api: string; mode?: string; edfEnabled?: boolean };
 type Epoch = {
   epoch_id: string;
   onset_s: number;
@@ -253,66 +245,47 @@ function LocalLab() {
     </>
   );
 }
-function App({ cfg, auth }: { cfg: Config; auth: UserManager }) {
-  const [user, setUser] = useState<User | null>(null),
-    [ready, setReady] = useState(false),
-    [busy, setBusy] = useState(""),
+
+function guestToken() {
+  let token = sessionStorage.getItem("maia-guest-token");
+  if (!token) {
+    token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    sessionStorage.setItem("maia-guest-token", token);
+  }
+  return token;
+}
+
+function App({ cfg }: { cfg: Config }) {
+  const [busy, setBusy] = useState(""),
     [error, setError] = useState("");
-  const [profile, setProfile] = useState("auto");
-  const [file, setFile] = useState<File | null>(null),
-    [job, setJob] = useState(""),
-    [result, setResult] = useState<Result | null>(null);
-  useEffect(() => {
-    (async () => {
-      try {
-        const q = new URLSearchParams(location.search);
-        let u: User | null;
-        if (q.has("code") || q.has("error")) {
-          u = await auth.signinRedirectCallback();
-          history.replaceState(null, "", location.pathname);
-        } else u = await auth.getUser();
-        if (u && !u.expired) {
-          setUser(u);
-          setJob(
-            new URLSearchParams(location.search).get("job") ??
-              sessionStorage.getItem("maia-job-" + u.profile.sub) ??
-              "",
-          );
-        }
-      } catch {
-        setError("La sesión no pudo completarse. Vuelve a iniciar sesión.");
-      } finally {
-        setReady(true);
-      }
-    })();
-  }, [auth]);
+  const [file, setFile] = useState<File | null>(null);
+  const [job, setJob] = useState(
+    () =>
+      new URLSearchParams(location.search).get("job") ??
+      sessionStorage.getItem("maia-guest-job") ??
+      "",
+  );
+  const [result, setResult] = useState<Result | null>(null),
+    [profile, setProfile] = useState("auto");
   async function api(path: string, opts: RequestInit = {}) {
-    const r = await fetch(cfg.api + path, {
+    const r = await fetch(cfg.api + "/public" + path, {
       ...opts,
       headers: {
-        Authorization: "Bearer " + user?.access_token,
+        "X-Guest-Token": guestToken(),
         ...(opts.body ? { "Content-Type": "application/json" } : {}),
         ...opts.headers,
       },
     });
     const data = await r.json();
     if (!r.ok) {
-      if (r.status === 401) {
-        setUser(null);
-        setJob("");
-        setResult(null);
-        setBusy("");
-        await auth.removeUser();
-        throw Error(
-          "Tu sesión venció. Vuelve a iniciar sesión para consultar el resultado.",
-        );
-      }
       throw Error(data.error ?? "Solicitud rechazada (" + r.status + ")");
     }
     return data;
   }
   useEffect(() => {
-    if (!job || !user) return;
+    if (!job) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -347,7 +320,7 @@ function App({ cfg, auth }: { cfg: Config; auth: UserManager }) {
       active = false;
       clearTimeout(timer);
     };
-  }, [job, user]);
+  }, [job, cfg.api]);
   async function run(example: boolean) {
     setError("");
     setBusy(example ? "Enviando ejemplo…" : "Verificando archivo…");
@@ -359,6 +332,8 @@ function App({ cfg, auth }: { cfg: Config; auth: UserManager }) {
         const format = file?.name.toLowerCase().endsWith(".edf")
           ? "edf"
           : "parquet";
+        if (format === "edf" && !cfg.edfEnabled)
+          throw Error("Este entorno admite archivos Parquet de hasta 32 MiB.");
         if (
           !file ||
           file.size > (format === "edf" ? 128 : 32) * 1024 ** 2 ||
@@ -404,7 +379,7 @@ function App({ cfg, auth }: { cfg: Config; auth: UserManager }) {
         accepted = await api("/v1/predictions", opts);
       }
       history.replaceState(null, "", "?job=" + accepted.job_id);
-      sessionStorage.setItem("maia-job-" + user?.profile.sub, accepted.job_id);
+      sessionStorage.setItem("maia-guest-job", accepted.job_id);
       setJob(accepted.job_id);
       setBusy("Procesando la noche…");
     } catch (e) {
@@ -425,23 +400,6 @@ function App({ cfg, auth }: { cfg: Config; auth: UserManager }) {
       <header>
         <strong>MAIA</strong>
         <span>Laboratorio del sueño</span>
-        {user && (
-          <button
-            className="link"
-            onClick={async () => {
-              await auth.removeUser();
-              location.assign(
-                cfg.login +
-                  "/logout?client_id=" +
-                  encodeURIComponent(cfg.clientId) +
-                  "&logout_uri=" +
-                  encodeURIComponent(cfg.origin + "/"),
-              );
-            }}
-          >
-            Cerrar sesión
-          </button>
-        )}
       </header>
       <main>
         <div className="intro">
@@ -453,54 +411,33 @@ function App({ cfg, auth }: { cfg: Config; auth: UserManager }) {
           </p>
         </div>
         <section className="panel">
-          <h2>{user ? "Analizar una noche" : "Acceso al laboratorio"}</h2>
-          {!user ? (
-            <>
-              <p>
-                Inicia sesión para procesar una noche preparada o probar el
-                modelo con un registro público.
-              </p>
-              <button
-                disabled={!ready}
-                onClick={() =>
-                  auth
-                    .signinRedirect()
-                    .catch(() =>
-                      setError("No se pudo abrir el inicio de sesión."),
-                    )
-                }
-              >
-                Iniciar sesión
-              </button>
-            </>
-          ) : (
-            <>
-              <label htmlFor="night">
-                Registro EDF (128 MiB) o características Parquet (32 MiB)
-              </label>
-              <input
-                id="night"
-                type="file"
-                accept=".parquet,.edf"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              {file?.name.toLowerCase().endsWith(".edf") && (
-                <ProfilePicker value={profile} change={setProfile} />
-              )}
-              <div className="actions">
-                <button disabled={!!busy || !file} onClick={() => run(false)}>
-                  Generar predicción
-                </button>
-                <button
-                  className="secondary"
-                  disabled={!!busy}
-                  onClick={() => run(true)}
-                >
-                  Probar ejemplo público
-                </button>
-              </div>
-            </>
+          <h2>Analizar una noche</h2>
+          <label htmlFor="night">
+            {cfg.edfEnabled
+              ? "Registro EDF (128 MiB) o características Parquet (32 MiB)"
+              : "Archivo de características · Parquet, hasta 32 MiB"}
+          </label>
+          <input
+            id="night"
+            type="file"
+            accept={cfg.edfEnabled ? ".parquet,.edf" : ".parquet"}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+          {cfg.edfEnabled && file?.name.toLowerCase().endsWith(".edf") && (
+            <ProfilePicker value={profile} change={setProfile} />
           )}
+          <div className="actions">
+            <button disabled={!!busy || !file} onClick={() => run(false)}>
+              Generar predicción
+            </button>
+            <button
+              className="secondary"
+              disabled={!!busy}
+              onClick={() => run(true)}
+            >
+              Probar ejemplo público
+            </button>
+          </div>
           {busy && <p role="status">{busy}</p>}
           {error && <p role="alert">{error}</p>}
         </section>
@@ -514,21 +451,7 @@ const root = createRoot(document.getElementById("root")!);
   const response = await fetch("/config.json", { cache: "no-store" });
   if (!response.ok) throw Error();
   const cfg: Config = await response.json();
-  if (cfg.mode === "local") {
-    root.render(<LocalLab />);
-    return;
-  }
-  const auth = new UserManager({
-    authority: cfg.issuer,
-    client_id: cfg.clientId,
-    redirect_uri: cfg.origin + "/",
-    response_type: "code",
-    scope: "openid aws.cognito.signin.user.admin",
-    userStore: new WebStorageStateStore({ store: sessionStorage }),
-    automaticSilentRenew: false,
-    loadUserInfo: false,
-  });
-  root.render(<App cfg={cfg} auth={auth} />);
+  root.render(cfg.mode === "local" ? <LocalLab /> : <App cfg={cfg} />);
 })().catch(() =>
   root.render(
     <main role="alert">

@@ -1,4 +1,4 @@
-"""The HTTP adapter derives ownership from trusted JWT claims for each request."""
+"""Exercise authenticated and guest ownership through the HTTP adapter."""
 
 import hashlib
 import importlib.util
@@ -119,7 +119,13 @@ def test_unconfigured_edf_release_returns_before_upload_or_execution(monkeypatch
     client.assert_not_called()
 
 
-def test_edf_upload_and_selected_profile_are_bound_to_job(monkeypatch):
+@pytest.mark.parametrize(
+    ("root", "subject", "identity"),
+    [("/v1", "person", {}), ("/public/v1", None, {"X-Guest-Token": "a" * 64})],
+)
+def test_edf_upload_and_selected_profile_are_bound_to_job(
+    monkeypatch, root, subject, identity
+):
     s3, states = Mock(), Mock()
     monkeypatch.setenv("EDF_ENABLED", "1")
     monkeypatch.setattr(api, "client", lambda name: s3 if name == "s3" else states)
@@ -131,9 +137,10 @@ def test_edf_upload_and_selected_profile_are_bound_to_job(monkeypatch):
     }
     uploaded = invoke(
         "POST",
-        "/v1/uploads",
-        "person",
+        root + "/uploads",
+        subject,
         {"format": "edf", "size": 52_000_000, "sha256": "a" * 64},
+        identity,
     )
     assert uploaded["statusCode"] == 201
     uid = json.loads(uploaded["body"])["upload_id"]
@@ -149,9 +156,10 @@ def test_edf_upload_and_selected_profile_are_bound_to_job(monkeypatch):
         "upload_id": uid,
         "version_id": "version",
     }
-    headers = {"Idempotency-Key": uuid4().hex}
+    headers = {**identity, "Idempotency-Key": uuid4().hex}
     assert (
-        invoke("POST", "/v1/predictions", "person", body, headers)["statusCode"] == 202
+        invoke("POST", root + "/predictions", subject, body, headers)["statusCode"]
+        == 202
     )
     event = json.loads(states.start_execution.call_args.kwargs["input"])
     assert (
@@ -161,7 +169,76 @@ def test_edf_upload_and_selected_profile_are_bound_to_job(monkeypatch):
     )
     assert (
         invoke(
-            "POST", "/v1/predictions", "person", {**body, "profile": "emg"}, headers
+            "POST", root + "/predictions", subject, {**body, "profile": "emg"}, headers
         )["statusCode"]
         == 400
     )
+
+
+def test_anonymous_visitors_have_separate_jobs_and_upload_prefixes(monkeypatch):
+    visitors = [{"X-Guest-Token": char * 64} for char in "ab"]
+    states = Mock()
+    s3 = Mock()
+    s3.generate_presigned_post.return_value = {
+        "fields": {},
+        "url": "https://example.test",
+    }
+    monkeypatch.setattr(api, "client", lambda name: s3 if name == "s3" else states)
+    for key, value in {
+        "JOBS_BUCKET": "jobs",
+        "MACHINE_ARN": "arn:aws:states:us-west-2:111111111111:stateMachine:demo",
+        "EXAMPLE_KEY": "example",
+        "EXAMPLE_VERSION": "1",
+        "EXAMPLE_SHA256": "a" * 64,
+    }.items():
+        monkeypatch.setenv(key, value)
+    root = "/public/v1"
+    assert invoke("GET", root + "/examples/default")["statusCode"] == 200
+    for bad in [{}, {"X-Guest-Token": "1234"}]:
+        assert (
+            invoke(
+                "POST",
+                root + "/uploads",
+                body={"size": 1, "sha256": "a" * 64},
+                headers=bad,
+            )["statusCode"]
+            == 401
+        )
+    assert (
+        invoke("GET", "/v1/examples/default", headers=visitors[0])["statusCode"] == 401
+    )
+    job = uuid4().hex
+    headers = {**visitors[0], "Idempotency-Key": job}
+    reply = invoke(
+        "POST", root + "/predictions", body={"example": "default"}, headers=headers
+    )
+    assert reply["statusCode"] == 202
+    status_url = json.loads(reply["body"])["status_url"]
+    assert status_url == root + "/predictions/" + job
+    name = states.start_execution.call_args.kwargs["name"]
+    states.describe_execution.return_value = {"status": "RUNNING"}
+    assert invoke("GET", status_url, headers=visitors[0])["statusCode"] == 200
+    assert states.describe_execution.call_args.kwargs["executionArn"].endswith(
+        ":" + name
+    )
+    states.describe_execution.side_effect = ClientError(
+        {"Error": {"Code": "ExecutionDoesNotExist"}}, "DescribeExecution"
+    )
+    assert invoke("GET", status_url, headers=visitors[1])["statusCode"] == 404
+    assert not states.describe_execution.call_args.kwargs["executionArn"].endswith(
+        ":" + name
+    )
+    owners = []
+    for visitor in visitors:
+        assert (
+            invoke(
+                "POST",
+                root + "/uploads",
+                body={"size": 123, "sha256": "a" * 64},
+                headers=visitor,
+            )["statusCode"]
+            == 201
+        )
+        owners.append(s3.generate_presigned_post.call_args.kwargs["Key"].split("/")[1])
+    assert owners[0] != owners[1]
+    assert name == owners[0] + "-" + job

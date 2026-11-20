@@ -126,9 +126,9 @@ make notebook
 
 Abrir la URL local que imprime JupyterLab y seleccionar `Sleep staging (.venv)`. Seguir este orden:
 
-1. `notebook/01_data_audit.ipynb`: catálogo, etiquetas y una señal real del piloto.
-2. `notebook/02_feature_analysis.ipynb`: épocas, características y particiones existentes; puede preparar caché mediante el paquete.
-3. `notebook/03_experiment_review.ipynb`: corridas de MLflow, leaderboard compatible y modelo ganador.
+1. `notebooks/01_data_audit.ipynb`: catálogo, etiquetas y una señal real del piloto.
+2. `notebooks/02_feature_analysis.ipynb`: épocas, características y particiones existentes; puede preparar caché mediante el paquete.
+3. `notebooks/03_experiment_review.ipynb`: corridas de MLflow, leaderboard compatible y modelo ganador.
 
 Los notebooks reutilizan el paquete y los datos reales descargados. La comparación se ejecuta con `experiment`; abrir los notebooks no dispara una campaña de entrenamiento.
 
