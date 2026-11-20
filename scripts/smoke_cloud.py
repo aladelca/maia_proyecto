@@ -17,6 +17,93 @@ import requests
 from sleep_staging.serving.contract import LABELS
 
 
+def upload(
+    client: requests.Session, url: str, origin: str, data: bytes, fmt: str
+) -> dict:
+    """Upload a night as the browser does and return the prediction request body."""
+    sign = client.post(
+        url + "uploads",
+        json={
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "format": fmt,
+        },
+        timeout=30,
+    )
+    sign.raise_for_status()
+    form = sign.json()
+    sent = requests.post(
+        form["url"],
+        data=form["fields"],
+        files={"file": ("night." + fmt, data)},
+        timeout=300,
+        headers={"Origin": origin},
+    )
+    if sent.status_code != 201:
+        raise RuntimeError(f"Upload failed: HTTP {sent.status_code}")
+    return {
+        "upload_id": form["upload_id"],
+        "version_id": sent.headers["x-amz-version-id"],
+    }
+
+
+def wait(client: requests.Session, url: str, job: str) -> tuple[dict, pd.DataFrame]:
+    for _ in range(80):
+        status = client.get(url + "predictions/" + job, timeout=20)
+        status.raise_for_status()
+        data = status.json()
+        if data["state"] != "processing":
+            break
+        time.sleep(2)
+    if data["state"] != "succeeded":
+        raise RuntimeError(
+            f"Prediction {job}: {data['state']} {data.get('reason', '')}"
+        )
+    reply = requests.get(data["files"]["json"], timeout=25)
+    if not reply.ok:
+        raise RuntimeError(f"Result download: HTTP {reply.status_code}")
+    return data, pd.DataFrame(reply.json()["epochs"])
+
+
+def verify_edf(config: dict, edf: Path, expected_csv: Path, profile: str) -> dict:
+    """Check a guest EDF upload against local `serve_fullnight.py --edf` output."""
+    client = requests.Session()
+    client.headers.update({"X-Guest-Token": secrets.token_hex(32)})
+    url = config["api"] + "/public/v1/"
+    started = time.monotonic()
+    body = upload(client, url, config["origin"], edf.read_bytes(), "edf")
+    body.update(format="edf", profile=profile)
+    accepted = client.post(
+        url + "predictions",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json=body,
+        timeout=30,
+    )
+    accepted.raise_for_status()
+    data, result = wait(client, url, accepted.json()["job_id"])
+    # Hosted epoch IDs carry the job ID, so align the nights by onset.
+    result = result.set_index("onset_s")
+    expected = pd.read_csv(expected_csv).set_index("onset_s")
+    cols = [c for c in expected if c.startswith("prob_")]
+    assert result.index.equals(expected.index)
+    pd.testing.assert_series_equal(
+        result.prediction, expected.prediction, check_dtype=False
+    )
+    np.testing.assert_allclose(
+        result[cols], expected[cols], rtol=0, atol=1e-5, equal_nan=True
+    )
+    return {
+        "job": data["job_id"],
+        "profile": data["profile"],
+        "rows": len(result),
+        "eligible": data["eligible"],
+        "release": data["model_version"],
+        "max_difference": float(np.nanmax(abs(result[cols] - expected[cols]))),
+        "inference_seconds": data["inference_seconds"],
+        "total_seconds": round(time.monotonic() - started, 3),
+    }
+
+
 def verify(config: dict, bundle: Path, *, guest: bool = False) -> dict:
     client = requests.Session()
     url = config["api"] + ("/public/v1/" if guest else "/v1/")
@@ -44,33 +131,11 @@ def verify(config: dict, bundle: Path, *, guest: bool = False) -> dict:
         client.headers.update({"Authorization": "Bearer " + auth["AccessToken"]})
     client.get(url + "examples/default", timeout=20).raise_for_status()
     example = (bundle / "example.parquet").read_bytes()
-    sign = client.post(
-        url + "uploads",
-        json={"size": len(example), "sha256": hashlib.sha256(example).hexdigest()},
-        timeout=30,
-    )
-    sign.raise_for_status()
-    form = sign.json()
-    upload = requests.post(
-        form["url"],
-        data=form["fields"],
-        files={"file": ("night.parquet", example)},
-        timeout=60,
-        headers={"Origin": config["origin"]},
-    )
-    if upload.status_code != 201:
-        raise RuntimeError(f"Upload failed: HTTP {upload.status_code}")
     expected = pd.read_parquet(bundle / "expected.parquet").set_index("epoch_id")
     report = {}
     for name, body in [
         ("example", {"example": "default"}),
-        (
-            "upload",
-            {
-                "upload_id": form["upload_id"],
-                "version_id": upload.headers["x-amz-version-id"],
-            },
-        ),
+        ("upload", upload(client, url, config["origin"], example, "parquet")),
     ]:
         started = time.monotonic()
         headers = {"Idempotency-Key": str(uuid.uuid4())}
@@ -88,21 +153,8 @@ def verify(config: dict, bundle: Path, *, guest: bool = False) -> dict:
             )
             assert other.status_code == 404
 
-        for _ in range(80):
-            status = client.get(url + "predictions/" + job, timeout=20)
-            status.raise_for_status()
-            data = status.json()
-            if data["state"] != "processing":
-                break
-            time.sleep(2)
-        if data["state"] != "succeeded":
-            raise RuntimeError(
-                f"Prediction {job}: {data['state']} {data.get('reason', '')}"
-            )
-        reply = requests.get(data["files"]["json"], timeout=25)
-        if not reply.ok:
-            raise RuntimeError(f"Result download: HTTP {reply.status_code}")
-        result = pd.DataFrame(reply.json()["epochs"]).set_index("epoch_id")
+        data, result = wait(client, url, job)
+        result = result.set_index("epoch_id")
         cols = ["prob_" + c for c in LABELS]
         assert result.index.equals(expected.index)
         pd.testing.assert_series_equal(
@@ -148,10 +200,22 @@ if __name__ == "__main__":
         action="store_true",
         help="Test the public API without a Cognito user",
     )
-    args = parser.parse_args()
-    print(
-        json.dumps(
-            verify(json.loads(args.config.read_text()), args.bundle, guest=args.guest),
-            indent=2,
-        )
+    parser.add_argument(
+        "--edf",
+        type=Path,
+        help="Also upload this EDF as a guest (requires --edf-expected)",
     )
+    parser.add_argument(
+        "--edf-expected",
+        type=Path,
+        help="CSV from scripts/serve_fullnight.py --edf with the same night",
+    )
+    parser.add_argument("--profile", default="auto", help="EDF channel profile")
+    args = parser.parse_args()
+    if bool(args.edf) != bool(args.edf_expected):
+        parser.error("--edf requires --edf-expected and vice versa")
+    config = json.loads(args.config.read_text())
+    report = verify(config, args.bundle, guest=args.guest)
+    if args.edf:
+        report["edf"] = verify_edf(config, args.edf, args.edf_expected, args.profile)
+    print(json.dumps(report, indent=2))

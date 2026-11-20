@@ -32,7 +32,7 @@ Para puntuar cinco estadios con la mejor mezcla global, usa el perfil de ambos E
 
 El contrato admite EDF continuo de 16 bits, duración de 30 segundos a 48 horas y hasta 128 MiB. Reconoce los encabezados de Sleep-EDFx `EEG Fpz-Cz`, `EEG Pz-Oz`, `EOG horizontal` y `EMG submental`. Los EEG y EOG son de 100 Hz. El EMG admite la envolvente nativa a 1 Hz de Cassette o la señal de 100 Hz de Telemetry. La opción `auto` usa los canales reconocidos. Hay 12 perfiles explícitos que combinan tres elecciones de EEG con cuatro elecciones de EOG y EMG. Una época sin un EEG elegido finito y con variación conserva su posición en el CSV, con `eligible=false` y predicción vacía. [Contrato y límites](../src/sleep_staging/serving/edf.py)
 
-La interfaz local ejecuta el modelo **directo de seis clases**, elegido en desarrollo con los cuatro canales. La mezcla de cinco clases se evaluó en el experimento de investigación. La API y el trabajador AWS admiten el nuevo formato con un archivo de pesos versionado. La prueba de esta entrega se hizo en local. [Publicación de pesos opcionales](../scripts/publish_cloud_inputs.py)
+La interfaz local ejecuta el modelo **directo de seis clases**, elegido en desarrollo con los cuatro canales. La mezcla de cinco clases se evaluó en el experimento de investigación. La API y el trabajador AWS sirven el mismo modelo directo de seis clases desde un archivo de pesos versionado. La aplicación desplegada acepta EDF desde el 20 de noviembre de 2026, y sus predicciones coinciden con las locales. [Evidencia del despliegue](cloud-operations.md#evidencia-del-despliegue-de-desarrollo) [Publicación de pesos opcionales](../scripts/publish_cloud_inputs.py)
 
 ## Datos y protocolo
 

@@ -20,11 +20,13 @@ Este proyecto entrena un modelo que clasifica cada época en cinco estadios (W, 
 La aplicación es pública y no requiere usuario ni contraseña. Cada pestaña del navegador genera una clave aleatoria de invitado, de modo que un visitante solo puede ver sus propios resultados.
 
 1. Abrir [la aplicación](https://maia-sueno-dev-60306.vercel.app).
-2. Seleccionar **Probar ejemplo público** para procesar la noche SC4001 o cargar el archivo de una noche preparada y pulsar **Generar predicción**.
+2. Seleccionar **Probar ejemplo público** para procesar la noche SC4001, o cargar una polisomnografía EDF o el Parquet de una noche preparada, y pulsar **Generar predicción**. Con un EDF se pueden elegir los canales de entrada.
 3. Esperar el resultado, que suele tardar menos de dos segundos. Se puede recargar la página mientras se procesa.
 4. Revisar el hipnograma, el tiempo en cada estadio y la versión del modelo, y descargar el CSV con la predicción por época.
 
-**Entrada.** Un archivo Parquet de una sola noche, de hasta 3.000 épocas y 32 MiB, con las columnas `recording_id`, `epoch_id`, `onset_s` (múltiplo de 30 s) y `eligible`, más las 145 variables numéricas del manifiesto del modelo. El worker valida el esquema y el SHA-256 antes de predecir. La carga directa de archivos EDF está en desarrollo.
+**Entrada.** Un archivo Parquet de una sola noche, de hasta 3.000 épocas y 32 MiB, con las columnas `recording_id`, `epoch_id`, `onset_s` (múltiplo de 30 s) y `eligible`, más las 145 variables numéricas del manifiesto del modelo. El worker valida el esquema y el SHA-256 antes de predecir.
+
+También acepta un **EDF** continuo de 16 bits, de hasta 128 MiB y 48 horas, con los canales de Sleep-EDFx `EEG Fpz-Cz`, `EEG Pz-Oz`, `EOG horizontal` y `EMG submental`. La opción `auto` usa todos los canales reconocidos, y hay 12 perfiles explícitos. El registro completo, sin recortar la vigilia, se procesa con la red directa de seis clases de la campaña IBIO (`681a52f21d273bf190ae/six`), que añade la clase de movimiento `M`. [Contrato EDF](docs/ibio-registro-completo.md)
 
 **Salida.** Un JSON con el resumen del trabajo y un CSV con una fila por época:
 
@@ -37,6 +39,8 @@ SC4001,SC4001:2400000,24000,True,N2,0.0021,0.0473,0.9302,0.0187,0.0017
 {"job_id": "…", "inference_seconds": 1.2, "model_version": "lgbm-49f74e944ce5457b",
  "preprocessing_id": "sc-w30-context435-v1", "rows": 841, "eligible": 841, "epochs": [ … ]}
 ```
+
+Con un EDF, el CSV añade `prob_M` y el JSON informa además `profile` (canales usados) y `classes`.
 
 Los valores de la fila de ejemplo son ilustrativos. La API REST (`/public/v1`) y sus respuestas se documentan en [docs/cloud-operations.md](docs/cloud-operations.md#api).
 
