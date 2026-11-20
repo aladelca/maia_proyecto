@@ -10,9 +10,7 @@ from sleep_staging.config import ExperimentConfig
 def classical_model(family: str, cfg: ExperimentConfig) -> Pipeline:
 
     if family == "dummy":
-        estimator = DummyClassifier(
-            strategy="most_frequent"
-        )
+        estimator = DummyClassifier(strategy="most_frequent")
 
     elif family == "rf":
         estimator = RandomForestClassifier(

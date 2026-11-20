@@ -1,0 +1,64 @@
+name: Revisión con Claude
+
+# Se activa con la variable de repositorio CLAUDE_REVIEW=true y uno de los secretos
+# ANTHROPIC_API_KEY o CLAUDE_CODE_OAUTH_TOKEN. Los PR desde forks no reciben secretos y se omiten.
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      vars.CLAUDE_REVIEW == 'true' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: anthropics/claude-code-action@e5812cd75691ca7bbfc57c0ecf4441db3a1ab7dd # v1.0.281
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allow_fork_prs: "false"
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Revisa este pull request. El proyecto estadifica el sueño con Sleep-EDFx: EDF → épocas de 30 s →
+            variables → LightGBM/BiLSTM → MLflow. La inferencia corre en AWS Lambda con Step Functions y el
+            frontend en Vercel. La rama del PR ya está en el directorio de trabajo.
+
+            Busca defectos reales, en este orden de prioridad:
+            1. Fuga de datos o validación incorrecta: separación por sujeto, los 16 sujetos de test reservados,
+               folds fijos y variables de contexto calculadas dentro de cada noche antes de retirar filas.
+            2. Paridad entre entrenamiento y servicio: orden de las 435 columnas y de las clases W, N1, N2, N3,
+               REM; pines de containers/ alineados con uv.lock; verificación de SHA-256 y VersionId antes de
+               deserializar un modelo.
+            3. Seguridad: autorización por propietario en services/api, URLs firmadas, permisos IAM más amplios
+               de lo necesario, secretos en código o en logs.
+            4. Terraform: cambios que destruyan o reemplacen recursos con estado (Cognito, buckets, API Gateway)
+               o que rompan la reversión por versiones de Step Functions y Lambda.
+            5. Comportamiento nuevo sin tests.
+
+            Publica cada hallazgo como comentario inline con mcp__github_inline_comment__create_inline_comment
+            (confirmed: true). Describe el escenario concreto que falla. Al final publica un único comentario
+            general con `gh pr comment` que resuma los hallazgos, o que indique que no encontraste problemas.
+            Escribe en español. Omite el estilo y el formato: ruff, mypy y terraform fmt ya corren en CI.
+          claude_args: |
+            --model ${{ vars.CLAUDE_REVIEW_MODEL || 'claude-opus-5-5' }}
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"

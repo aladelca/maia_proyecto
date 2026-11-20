@@ -8,11 +8,13 @@ from sleep_staging.experiments import create_splits
 def test_fixed_split_respects_csv(tmp_path):
     subjects = [f"sleep-cassette:{i:02d}" for i in range(8)]
 
-    expected = pd.DataFrame({
-        "subject_id": subjects,
-        "partition": ["development"] * 5 + ["test"] * 3,
-        "fold": [0, 1, 2, 3, 4, -1, -1, -1],
-    })
+    expected = pd.DataFrame(
+        {
+            "subject_id": subjects,
+            "partition": ["development"] * 5 + ["test"] * 3,
+            "fold": [0, 1, 2, 3, 4, -1, -1, -1],
+        }
+    )
 
     csv = tmp_path / "configs/splits/fixed.csv"
     csv.parent.mkdir(parents=True)
@@ -21,9 +23,11 @@ def test_fixed_split_respects_csv(tmp_path):
     prepared = tmp_path / "prepared/synthetic"
     prepared.mkdir(parents=True)
 
-    epochs = pd.DataFrame({
-        "subject_id": subjects * 2,
-    })
+    epochs = pd.DataFrame(
+        {
+            "subject_id": subjects * 2,
+        }
+    )
     epochs.to_parquet(prepared / "epochs.parquet", index=False)
 
     cfg = ExperimentConfig(
@@ -48,18 +52,22 @@ def test_fixed_split_rejects_missing_subject(tmp_path):
     csv = tmp_path / "configs/splits/fixed.csv"
     csv.parent.mkdir(parents=True)
 
-    pd.DataFrame({
-        "subject_id": subjects[:-1],
-        "partition": ["development"] * 5 + ["test"] * 2,
-        "fold": [0, 1, 2, 3, 4, -1, -1],
-    }).to_csv(csv, index=False)
+    pd.DataFrame(
+        {
+            "subject_id": subjects[:-1],
+            "partition": ["development"] * 5 + ["test"] * 2,
+            "fold": [0, 1, 2, 3, 4, -1, -1],
+        }
+    ).to_csv(csv, index=False)
 
     prepared = tmp_path / "prepared/synthetic"
     prepared.mkdir(parents=True)
 
-    pd.DataFrame({
-        "subject_id": subjects,
-    }).to_parquet(prepared / "epochs.parquet", index=False)
+    pd.DataFrame(
+        {
+            "subject_id": subjects,
+        }
+    ).to_parquet(prepared / "epochs.parquet", index=False)
 
     cfg = ExperimentConfig(
         split_file="configs/splits/fixed.csv",

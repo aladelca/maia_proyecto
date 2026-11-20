@@ -127,6 +127,8 @@ def predictions(model: Any, manifest: dict, frame: pd.DataFrame) -> pd.DataFrame
             or not np.allclose(p.sum(axis=1), 1, atol=1e-6)
         ):
             raise ValueError("Probabilidades inválidas.")
-        result.loc[mask, "prediction"] = np.asarray(model.classes_)[native.argmax(axis=1)]
+        result.loc[mask, "prediction"] = np.asarray(model.classes_)[
+            native.argmax(axis=1)
+        ]
         result.loc[mask, probs] = p
     return result

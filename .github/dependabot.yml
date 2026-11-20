@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # Las actions están fijadas por SHA; Dependabot mantiene el SHA y el comentario de versión.
+  - package-ecosystem: github-actions
+    directory: /
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: monthly
+    groups:
+      frontend:
+        patterns: ["*"]
+
+  # Un cambio de numpy, pandas, scikit-learn, LightGBM o pyarrow exige actualizar containers/
+  # (ci/check-pins.py lo bloquea hasta entonces) y volver a pasar la prueba de paridad.
+  - package-ecosystem: uv
+    directory: /
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns: ["*"]
