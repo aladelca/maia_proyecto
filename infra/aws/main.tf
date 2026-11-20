@@ -35,7 +35,9 @@ locals {
     { Effect = "Allow", Action = ["s3:GetObjectVersion", "s3:PutObject"], Resource = "arn:aws:s3:::${local.bucket}/users/*/uploads/*" },
     { Effect = "Allow", Action = ["s3:GetObject"], Resource = "arn:aws:s3:::${local.bucket}/users/*/results/*" },
     { Effect = "Allow", Action = ["states:StartExecution"], Resource = "${local.machine_arn}:live" },
-    { Effect = "Allow", Action = ["states:DescribeExecution"], Resource = "${replace(local.machine_arn, ":stateMachine:", ":execution:")}:*" }
+    { Effect = "Allow", Action = ["states:DescribeExecution"], Resource = "${replace(local.machine_arn, ":stateMachine:", ":execution:")}:*" },
+    { Effect = "Allow", Action = ["s3:GetBucketVersioning"], Resource = "arn:aws:s3:::${local.bucket}" },
+    { Effect = "Allow", Action = ["states:DescribeStateMachineAlias"], Resource = "${local.machine_arn}:live" }
   ]
   worker_policy = [
     { Effect = "Allow", Action = ["s3:GetObjectVersion"], Resource = ["arn:aws:s3:::${local.release}/releases/*", "arn:aws:s3:::${local.bucket}/users/*/uploads/*"] },
@@ -79,7 +81,7 @@ resource "aws_lambda_function" "app" {
   timeout       = each.key == "worker" ? 300 : 20
   environment {
     variables = merge({ JOBS_BUCKET = local.bucket }, each.key == "api" ? {
-      MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256, EDF_ENABLED = local.edf_enabled ? "1" : "0", EDF_LGBM_ENABLED = var.edf_lgbm_enabled ? "1" : "0"
+      API_VERSION = try(substr(split("@sha256:", var.images["api"])[1], 0, 12), "unknown"), MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256, EDF_ENABLED = local.edf_enabled ? "1" : "0", EDF_LGBM_ENABLED = var.edf_lgbm_enabled ? "1" : "0"
       } : {
       RELEASE_BUCKET = local.release, MANIFEST_KEY = local.obj.manifest.key, MANIFEST_VERSION = local.obj.manifest.version, MANIFEST_SHA256 = local.obj.manifest.sha256, OMP_NUM_THREADS = "2", OPENBLAS_NUM_THREADS = "1", EDF_MODEL_KEY = try(local.obj.edf_model.key, ""), EDF_MODEL_VERSION = try(local.obj.edf_model.version, ""), EDF_MODEL_SHA256 = try(local.obj.edf_model.sha256, "")
     })
@@ -164,6 +166,13 @@ resource "aws_apigatewayv2_route" "guest" {
   for_each           = aws_apigatewayv2_route.routes
   api_id             = aws_apigatewayv2_api.api.id
   route_key          = replace(each.key, " /v1/", " /public/v1/")
+  target             = "integrations/${aws_apigatewayv2_integration.api.id}"
+  authorization_type = "NONE"
+}
+resource "aws_apigatewayv2_route" "service" {
+  for_each           = toset(["GET /health", "GET /health/ready", "GET /openapi.json", "GET /docs"])
+  api_id             = aws_apigatewayv2_api.api.id
+  route_key          = each.key
   target             = "integrations/${aws_apigatewayv2_integration.api.id}"
   authorization_type = "NONE"
 }

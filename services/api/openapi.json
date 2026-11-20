@@ -1,0 +1,976 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "API de estadificación del sueño",
+    "version": "1.0.0",
+    "description": "API HTTP del proyecto MAIA. Recibe una noche (Parquet preparado o EDF), lanza la inferencia en AWS Step Functions y devuelve el hipnograma por época de 30 s.\n\nLas operaciones de trabajos existen en dos espacios con el mismo contrato: `/public/v1` para visitantes con una clave aleatoria `X-Guest-Token`, y `/v1` para integraciones con un access token de Cognito. Los endpoints de servicio (`/health`, `/health/ready`, `/openapi.json` y `/docs`) no requieren autenticación.\n\nAPI Gateway limita la API a 10 solicitudes/s con ráfagas de 15 (HTTP 429). Si la función no puede ejecutarse, por ejemplo con la sesión del laboratorio de AWS Academy detenida, API Gateway responde `500 {\"message\":\"Internal Server Error\"}` en todas las rutas, incluida `/health`.\n\nGuía y decisiones de diseño: `docs/api.md` en el repositorio."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Origen que sirve este documento"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Servicio",
+      "description": "Salud, especificación y documentación interactiva."
+    },
+    {
+      "name": "Invitado",
+      "description": "Trabajos aislados por la clave `X-Guest-Token`."
+    },
+    {
+      "name": "Cognito",
+      "description": "Trabajos aislados por el usuario de Cognito."
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Servicio"
+        ],
+        "operationId": "getHealth",
+        "summary": "Liveness: la función responde",
+        "description": "No consulta AWS. Responde 200 siempre que la Lambda se ejecute e informa la versión desplegada y qué modelos EDF habilita el backend.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "La API está viva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "Servicio"
+        ],
+        "operationId": "getReadiness",
+        "summary": "Readiness: la API puede aceptar trabajos",
+        "description": "Comprueba la configuración, el bucket de trabajos (existe y tiene versionado) y el alias `live` de Step Functions. Los fallos se registran en CloudWatch con su código; la respuesta solo indica qué comprobación falló.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Todas las dependencias responden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Alguna dependencia falla.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "tags": [
+          "Servicio"
+        ],
+        "operationId": "getOpenApi",
+        "summary": "Esta especificación OpenAPI",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Documento OpenAPI 3.1.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/docs": {
+      "get": {
+        "tags": [
+          "Servicio"
+        ],
+        "operationId": "getDocs",
+        "summary": "Documentación interactiva (Swagger UI)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Página HTML.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/examples/default": {
+      "get": {
+        "tags": [
+          "Invitado"
+        ],
+        "operationId": "guestGetExample",
+        "summary": "Describir la noche pública de ejemplo",
+        "description": "No requiere clave de invitado; sirve también para comprobar que la API responde.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Ejemplo disponible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Example"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/uploads": {
+      "post": {
+        "tags": [
+          "Invitado"
+        ],
+        "operationId": "guestCreateUpload",
+        "summary": "Autorizar la carga de una noche",
+        "description": "Devuelve un formulario POST firmado de S3, válido 10 minutos. Enviar todos los `fields` y, al final, el archivo en el campo `file`. S3 responde 201 con la cabecera `x-amz-version-id`, que la predicción necesita como `version_id`.",
+        "security": [
+          {
+            "guestToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Formulario de carga firmado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadForm"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/public/v1/predictions": {
+      "post": {
+        "tags": [
+          "Invitado"
+        ],
+        "operationId": "guestStartPrediction",
+        "summary": "Iniciar una predicción",
+        "description": "Inicia el flujo de Step Functions y responde sin esperar al modelo. Repetir la solicitud con la misma `Idempotency-Key` y el mismo cuerpo devuelve el mismo trabajo; con otro cuerpo devuelve 409.",
+        "security": [
+          {
+            "guestToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PredictionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Trabajo aceptado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "La clave ya identifica otra solicitud.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/public/v1/predictions/{job}": {
+      "get": {
+        "tags": [
+          "Invitado"
+        ],
+        "operationId": "guestGetPrediction",
+        "summary": "Consultar el estado de un trabajo",
+        "description": "Consultar cada 2 s mientras `state` sea `processing`. Cada consulta renueva los enlaces de descarga, que vencen a los 5 minutos. Un trabajo de otro propietario responde 404.",
+        "security": [
+          {
+            "guestToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Job"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado del trabajo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "410": {
+            "description": "El resultado expiró (política de 7 días de S3).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/examples/default": {
+      "get": {
+        "tags": [
+          "Cognito"
+        ],
+        "operationId": "userGetExample",
+        "summary": "Describir la noche pública de ejemplo",
+        "description": "Requiere el access token de Cognito.",
+        "security": [
+          {
+            "cognito": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ejemplo disponible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Example"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/uploads": {
+      "post": {
+        "tags": [
+          "Cognito"
+        ],
+        "operationId": "userCreateUpload",
+        "summary": "Autorizar la carga de una noche",
+        "description": "Devuelve un formulario POST firmado de S3, válido 10 minutos. Enviar todos los `fields` y, al final, el archivo en el campo `file`. S3 responde 201 con la cabecera `x-amz-version-id`, que la predicción necesita como `version_id`.",
+        "security": [
+          {
+            "cognito": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Formulario de carga firmado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadForm"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/predictions": {
+      "post": {
+        "tags": [
+          "Cognito"
+        ],
+        "operationId": "userStartPrediction",
+        "summary": "Iniciar una predicción",
+        "description": "Inicia el flujo de Step Functions y responde sin esperar al modelo. Repetir la solicitud con la misma `Idempotency-Key` y el mismo cuerpo devuelve el mismo trabajo; con otro cuerpo devuelve 409.",
+        "security": [
+          {
+            "cognito": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PredictionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Trabajo aceptado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "La clave ya identifica otra solicitud.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/predictions/{job}": {
+      "get": {
+        "tags": [
+          "Cognito"
+        ],
+        "operationId": "userGetPrediction",
+        "summary": "Consultar el estado de un trabajo",
+        "description": "Consultar cada 2 s mientras `state` sea `processing`. Cada consulta renueva los enlaces de descarga, que vencen a los 5 minutos. Un trabajo de otro propietario responde 404.",
+        "security": [
+          {
+            "cognito": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Job"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado del trabajo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "410": {
+            "description": "El resultado expiró (política de 7 días de S3).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "guestToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Guest-Token",
+        "description": "32 bytes aleatorios en 64 caracteres hexadecimales en minúsculas. El navegador la genera por pestaña; quien la conoce puede leer los trabajos creados con ella."
+      },
+      "cognito": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Access token de Cognito con el scope `aws.cognito.signin.user.admin`. API Gateway valida el token y rechaza el ID token."
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "UUID generado por el cliente; identifica el trabajo.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "Job": {
+        "name": "job",
+        "in": "path",
+        "required": true,
+        "description": "`job_id` devuelto al iniciar la predicción.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Solicitud inválida; `error` explica el motivo.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Falta la credencial. La API responde `{\"error\": …}`; el autorizador JWT de API Gateway responde `{\"message\": \"Unauthorized\"}`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Error"
+                },
+                {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "El archivo o el trabajo no existe o es de otro propietario.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "El modelo EDF pedido no está publicado o una dependencia de AWS falló.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Mensaje en español."
+          }
+        }
+      },
+      "GatewayError": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version",
+          "features"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "service": {
+            "const": "maia-sleep-api"
+          },
+          "version": {
+            "type": "string",
+            "description": "Primeros 12 caracteres del digest de la imagen; `local` fuera de AWS.",
+            "examples": [
+              "8fc1e91474f6"
+            ]
+          },
+          "features": {
+            "type": "object",
+            "description": "Entradas que acepta el backend. Con la release híbrida activa solo `edf_stack_five` es verdadero. `edf_fullnight` y `edf_lightgbm` deben coincidir con `edfEnabled` y `edfLgbmEnabled` de `config.json`.",
+            "required": [
+              "parquet",
+              "edf_fullnight",
+              "edf_lightgbm",
+              "edf_stack_five"
+            ],
+            "properties": {
+              "parquet": {
+                "type": "boolean"
+              },
+              "edf_fullnight": {
+                "type": "boolean"
+              },
+              "edf_lightgbm": {
+                "type": "boolean"
+              },
+              "edf_stack_five": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "Readiness": {
+        "type": "object",
+        "required": [
+          "status",
+          "checks"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "ready",
+              "unavailable"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "required": [
+              "config",
+              "storage",
+              "workflow"
+            ],
+            "properties": {
+              "config": {
+                "$ref": "#/components/schemas/CheckState"
+              },
+              "storage": {
+                "$ref": "#/components/schemas/CheckState"
+              },
+              "workflow": {
+                "$ref": "#/components/schemas/CheckState"
+              }
+            }
+          }
+        },
+        "examples": [
+          {
+            "status": "ready",
+            "checks": {
+              "config": "ok",
+              "storage": "ok",
+              "workflow": "ok"
+            }
+          }
+        ]
+      },
+      "CheckState": {
+        "enum": [
+          "ok",
+          "error",
+          "skipped"
+        ],
+        "description": "`skipped` indica que no se probó porque falta configuración."
+      },
+      "Example": {
+        "type": "object",
+        "required": [
+          "example",
+          "description"
+        ],
+        "description": "Con la release híbrida activa, el ejemplo es un EDF sintético de 10 minutos e incluye `model`, `model_version` y `format`.",
+        "properties": {
+          "example": {
+            "const": "default"
+          },
+          "description": {
+            "type": "string"
+          },
+          "model": {
+            "const": "stack_five"
+          },
+          "model_version": {
+            "type": "string",
+            "examples": [
+              "stack-five-a64415fc2bd6"
+            ]
+          },
+          "format": {
+            "const": "edf"
+          }
+        }
+      },
+      "Format": {
+        "enum": [
+          "parquet",
+          "edf"
+        ],
+        "default": "parquet",
+        "description": "Parquet: hasta 32 MiB. EDF: hasta 128 MiB. Con la release híbrida activa solo se acepta `edf` y debe enviarse explícitamente."
+      },
+      "Model": {
+        "enum": [
+          "fullnight",
+          "lightgbm",
+          "stack_five"
+        ],
+        "description": "Solo con `format=edf`. `stack_five` es la release híbrida de cinco estadios (FullNight + LightGBM). Cuando está activa, que es el caso de la imagen publicada (`ACTIVE_EDF_MODEL=stack_five`), es el único modelo aceptado y el valor por defecto. Sin ella, `fullnight` (por defecto) usa la red de seis clases y `lightgbm` el modelo tabular, cada uno si su indicador está activo."
+      },
+      "Profile": {
+        "type": "string",
+        "default": "auto",
+        "description": "Canales EDF. `fullnight` acepta `auto` o una combinación de `eeg_fpz_cz`, `eeg_pz_oz`, `eog` y `emg` unida por `+` con al menos un EEG; `lightgbm` y `stack_five` aceptan `auto` o `eeg_fpz_cz+eeg_pz_oz+eog+emg`. No se admite con Parquet.",
+        "examples": [
+          "auto",
+          "eeg_pz_oz+eog"
+        ]
+      },
+      "UploadRequest": {
+        "type": "object",
+        "required": [
+          "size",
+          "sha256"
+        ],
+        "properties": {
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Tamaño exacto en bytes."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "format": {
+            "$ref": "#/components/schemas/Format"
+          },
+          "model": {
+            "$ref": "#/components/schemas/Model"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/Profile"
+          }
+        }
+      },
+      "UploadForm": {
+        "type": "object",
+        "required": [
+          "upload_id",
+          "url",
+          "fields"
+        ],
+        "properties": {
+          "upload_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PredictionRequest": {
+        "oneOf": [
+          {
+            "title": "Ejemplo público",
+            "type": "object",
+            "required": [
+              "example"
+            ],
+            "properties": {
+              "example": {
+                "const": "default"
+              },
+              "model": {
+                "const": "stack_five",
+                "description": "Opcional y solo con la release híbrida activa."
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "title": "Archivo cargado",
+            "type": "object",
+            "required": [
+              "upload_id",
+              "version_id"
+            ],
+            "properties": {
+              "upload_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version_id": {
+                "type": "string",
+                "description": "Cabecera `x-amz-version-id` de la respuesta de S3."
+              },
+              "format": {
+                "$ref": "#/components/schemas/Format"
+              },
+              "model": {
+                "$ref": "#/components/schemas/Model"
+              },
+              "profile": {
+                "$ref": "#/components/schemas/Profile"
+              }
+            }
+          }
+        ]
+      },
+      "Accepted": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "status_url"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "status_url": {
+            "type": "string",
+            "description": "Ruta relativa para consultar el estado.",
+            "examples": [
+              "/public/v1/predictions/0f8e…"
+            ]
+          }
+        }
+      },
+      "JobStatus": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "state"
+        ],
+        "description": "Con `succeeded` incluye el resumen del worker y los enlaces de descarga.",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "state": {
+            "enum": [
+              "processing",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "Solo con `failed`."
+          },
+          "model_version": {
+            "type": "string"
+          },
+          "mlflow_run_id": {
+            "type": "string",
+            "description": "Solo con `stack_five`."
+          },
+          "preprocessing_id": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "eligible": {
+            "type": "integer"
+          },
+          "inference_seconds": {
+            "type": "number"
+          },
+          "input_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "profile": {
+            "type": "string",
+            "description": "Solo con EDF."
+          },
+          "classes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Solo con EDF."
+          },
+          "window": {
+            "const": "full",
+            "description": "Solo con EDF y `lightgbm` o `stack_five`."
+          },
+          "files": {
+            "type": "object",
+            "description": "Enlaces firmados al resultado, válidos 5 minutos.",
+            "required": [
+              "json",
+              "csv"
+            ],
+            "properties": {
+              "json": {
+                "type": "string",
+                "format": "uri"
+              },
+              "csv": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

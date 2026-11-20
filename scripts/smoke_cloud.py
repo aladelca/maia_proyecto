@@ -123,6 +123,27 @@ def verify_edf(
     }
 
 
+def check_health(config: dict) -> dict:
+    """Fail fast when the API is not ready and report where config.json drifts."""
+    ready = requests.get(config["api"] + "/health/ready", timeout=20)
+    if ready.status_code != 200:
+        raise RuntimeError(f"API not ready: HTTP {ready.status_code} {ready.text}")
+    health = requests.get(config["api"] + "/health", timeout=20)
+    health.raise_for_status()
+    data = health.json()
+    advertised = {
+        "edf_fullnight": bool(config.get("edfEnabled")),
+        "edf_lightgbm": bool(config.get("edfLgbmEnabled")),
+    }
+    # Informative only: the web may offer a model the backend no longer accepts.
+    drift = sorted(k for k, v in advertised.items() if data["features"][k] != v)
+    return {
+        "version": data["version"],
+        "features": data["features"],
+        "config_drift": drift,
+    }
+
+
 def verify(config: dict, bundle: Path, *, guest: bool = False) -> dict:
     client = requests.Session()
     url = config["api"] + ("/public/v1/" if guest else "/v1/")
@@ -257,9 +278,11 @@ if __name__ == "__main__":
     if bool(args.edf) != bool(args.edf_expected):
         parser.error("--edf requires --edf-expected and vice versa")
     config = json.loads(args.config.read_text())
+    health = check_health(config)
     report = verify(config, args.bundle, guest=args.guest)
     if args.require_stack and any(row["release"] != VERSION for row in report.values()):
         raise RuntimeError("La release híbrida solicitada no está activa.")
+    report["health"] = health
     if args.edf:
         report["edf"] = verify_edf(
             config, args.edf, args.edf_expected, args.profile, args.edf_model

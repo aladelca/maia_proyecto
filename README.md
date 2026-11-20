@@ -25,6 +25,8 @@ La aplicación es pública y no requiere usuario ni contraseña. Cada pestaña d
 
 El modelo requiere EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, y la envolvente de EMG submental a 1 Hz. El límite es 128 MiB y 48 horas. La API identifica el modelo como stack-five-a64415fc2bd6. [Ejemplo y contrato](docs/cloud-operations.md#probar-la-aplicación) · [Pesos y prueba local](modelos/stack_five/README.md)
 
+La API REST (`/public/v1`), sus endpoints de salud (`/health`, `/health/ready`) y la decisión de usar Flask se documentan en [docs/api.md](docs/api.md). La API desplegada sirve su especificación OpenAPI en `/openapi.json` y una documentación interactiva en `/docs`.
+
 ## Consideraciones del modelo
 
 - **Tamaño y hardware:** el modelo final es un LightGBM de 261 iteraciones que corre en CPU y no necesita GPU. El worker usa 3.072 MB de memoria y dos hilos.
@@ -44,7 +46,7 @@ El modelo requiere EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, y la envolve
 | `configs/research/*.yaml` | Espacios de búsqueda de LightGBM, CatBoost y BiLSTM, paciencia y semilla | Campañas de ajuste |
 | `configs/splits/sc_subjects_v1.csv` | Partición fija por sujeto | Separación desarrollo/prueba |
 | `infra/<stack>/deploy.auto.tfvars.json` | `region`, `origin`, `images`, `inputs` (versión y SHA-256 del modelo), `monthly_budget` | Despliegue con Terraform |
-| Variables de la Lambda API | `JOBS_BUCKET`, `MACHINE_ARN`, `EXAMPLE_KEY`, `EXAMPLE_VERSION`, `EXAMPLE_SHA256` | Bucket de trabajos, flujo y noche de ejemplo |
+| Variables de la Lambda API | `JOBS_BUCKET`, `MACHINE_ARN`, `EXAMPLE_KEY`, `EXAMPLE_VERSION`, `EXAMPLE_SHA256`, `API_VERSION` | Bucket de trabajos, flujo, noche de ejemplo y versión que informa `/health` |
 | Variables de la Lambda worker | `RELEASE_BUCKET`, `MANIFEST_KEY`, `MANIFEST_VERSION`, `MANIFEST_SHA256`, `OMP_NUM_THREADS` | Versión exacta del modelo y número de hilos |
 | `frontend/dist/config.json` | `api`, `origin`, `edfEnabled` y los datos de Cognito (`issuer`, `clientId`, `login`), tomados de la salida pública de Terraform y guardados en Vercel como `MAIA_PUBLIC_CONFIG` | Configuración del frontend |
 

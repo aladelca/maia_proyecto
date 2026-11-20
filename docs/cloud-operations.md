@@ -10,8 +10,12 @@ En el [laboratorio de sueño](https://maia-sueno-dev-60306.vercel.app), seleccio
 
 El laboratorio se abre directamente. Las operaciones de la tabla están disponibles bajo `/public/v1`. Para las cargas y predicciones, el navegador genera una clave aleatoria de 32 bytes, la guarda durante la vida de la pestaña y la envía en la cabecera `X-Guest-Token` como 64 caracteres hexadecimales en minúsculas. Recargar la página conserva el acceso al resultado. Otra persona puede abrir el laboratorio y ejecutar su propia predicción. Las integraciones que ya usan Cognito pueden seguir usando `/v1` con su token de acceso.
 
+La referencia completa está en `{api}/docs` (Swagger UI) y en la especificación OpenAPI `{api}/openapi.json`. La guía de la API explica los esquemas, los endpoints de salud y la elección de Flask. [Guía de la API](api.md)
+
 | Solicitud | Respuesta |
 | --- | --- |
+| `GET /health` | Estado de la función, versión desplegada y entradas que acepta el backend. No requiere clave. |
+| `GET /health/ready` | HTTP 200 si la configuración, S3 y Step Functions responden; HTTP 503 con la comprobación que falla. No requiere clave. |
 | `GET /public/v1/examples/default` | Descripción del ejemplo. |
 | `POST /public/v1/uploads` con `{"size": bytes,"sha256": digest}` | Formulario firmado válido diez minutos. Enviar sus campos y, al final, el archivo. Conservar la cabecera S3 `x-amz-version-id`. |
 | `POST /public/v1/predictions` con cabecera UUID `Idempotency-Key` | Acepta `{"example":"default"}` o `{"upload_id":"…","version_id":"…"}`. Devuelve HTTP 202 y `status_url`. Reutilizar la clave con otro archivo devuelve HTTP 409. |
@@ -156,7 +160,7 @@ uv run --extra cloud python scripts/smoke_cloud.py --guest \
 BROWSER_CHANNEL=chrome npm --prefix frontend run test:e2e
 ```
 
-La prueba de API verifica permisos, carga firmada, idempotencia y las cinco probabilidades contra la referencia de la noche. Playwright prueba el acceso público desde un navegador nuevo, el aislamiento de los resultados entre visitantes, el procesamiento, la recarga, la carga de Parquet y la descarga del CSV. CloudWatch conserva siete días de logs y dispone de alarmas por errores del worker, throttling de la API y fallos del flujo. El almacenamiento, ECR, tracking e invocaciones pueden generar cargos aun cuando no haya una instancia de entrenamiento activa.
+La prueba de API consulta primero `/health/ready` y `/health`, y anota en `health.config_drift` los modelos en que `config.json` y el backend discrepan. Después verifica permisos, carga firmada, idempotencia y las cinco probabilidades contra la referencia de la noche. Playwright prueba el acceso público desde un navegador nuevo, el aislamiento de los resultados entre visitantes, el procesamiento, la recarga, la carga de Parquet y la descarga del CSV. CloudWatch conserva siete días de logs y dispone de alarmas por errores del worker, throttling de la API y fallos del flujo. El almacenamiento, ECR, tracking e invocaciones pueden generar cargos aun cuando no haya una instancia de entrenamiento activa.
 
 ## Evidencia del despliegue de desarrollo
 

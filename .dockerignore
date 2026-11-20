@@ -19,6 +19,7 @@
 !services/
 !services/api/
 !services/api/*.py
+!services/api/openapi.json
 !configs/
 !configs/research/
 !configs/research/refinement.yaml
