@@ -1,4 +1,4 @@
-"""The HTTP adapter derives ownership from trusted JWT claims for each request."""
+"""Exercise authenticated and guest ownership through the HTTP adapter."""
 
 import hashlib
 import importlib.util
@@ -102,6 +102,77 @@ def test_validation_precedes_signing(monkeypatch):
         123,
         123,
     ] in s3.generate_presigned_post.call_args.kwargs["Conditions"]
+
+
+def test_unconfigured_edf_release_returns_before_upload_or_execution(monkeypatch):
+    monkeypatch.setenv("EDF_ENABLED", "0")
+    client = Mock()
+    monkeypatch.setattr(api, "client", client)
+    body = {"format": "edf", "size": 123, "sha256": "a" * 64}
+    assert invoke("POST", "/v1/uploads", "p", body)["statusCode"] == 503
+    assert (
+        invoke("POST", "/v1/predictions", "p", body, {"Idempotency-Key": uuid4().hex})[
+            "statusCode"
+        ]
+        == 503
+    )
+    client.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("root", "subject", "identity"),
+    [("/v1", "person", {}), ("/public/v1", None, {"X-Guest-Token": "a" * 64})],
+)
+def test_edf_upload_and_selected_profile_are_bound_to_job(
+    monkeypatch, root, subject, identity
+):
+    s3, states = Mock(), Mock()
+    monkeypatch.setenv("EDF_ENABLED", "1")
+    monkeypatch.setattr(api, "client", lambda name: s3 if name == "s3" else states)
+    monkeypatch.setenv("JOBS_BUCKET", "jobs")
+    monkeypatch.setenv("MACHINE_ARN", "arn:example")
+    s3.generate_presigned_post.return_value = {
+        "url": "https://s3.example",
+        "fields": {},
+    }
+    uploaded = invoke(
+        "POST",
+        root + "/uploads",
+        subject,
+        {"format": "edf", "size": 52_000_000, "sha256": "a" * 64},
+        identity,
+    )
+    assert uploaded["statusCode"] == 201
+    uid = json.loads(uploaded["body"])["upload_id"]
+    args = s3.generate_presigned_post.call_args.kwargs
+    assert args["Key"].endswith(uid + ".edf")
+    s3.head_object.return_value = {
+        "ContentLength": 52_000_000,
+        "Metadata": {"sha256": "a" * 64},
+    }
+    body = {
+        "format": "edf",
+        "profile": "eeg_pz_oz",
+        "upload_id": uid,
+        "version_id": "version",
+    }
+    headers = {**identity, "Idempotency-Key": uuid4().hex}
+    assert (
+        invoke("POST", root + "/predictions", subject, body, headers)["statusCode"]
+        == 202
+    )
+    event = json.loads(states.start_execution.call_args.kwargs["input"])
+    assert (
+        event["profile"] == "eeg_pz_oz"
+        and event["format"] == "edf"
+        and event["input_key"] == args["Key"]
+    )
+    assert (
+        invoke(
+            "POST", root + "/predictions", subject, {**body, "profile": "emg"}, headers
+        )["statusCode"]
+        == 400
+    )
 
 
 def test_anonymous_visitors_have_separate_jobs_and_upload_prefixes(monkeypatch):

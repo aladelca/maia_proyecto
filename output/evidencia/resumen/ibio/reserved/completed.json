@@ -1,0 +1,9 @@
+{
+  "run": "681a52f21d273bf190ae",
+  "nights": 75,
+  "cohort_counts": {
+    "sleep-cassette": 31,
+    "sleep-telemetry": 44
+  },
+  "conditions_sha256": "833b4d1fd79ac5cc562fc4e355684c63449619a0a2c1981b2c11ced4ceef2e32"
+}

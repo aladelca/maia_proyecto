@@ -26,6 +26,9 @@ cloud = [
     "flask>=3.1.3",
     "sagemaker-mlflow>=0.5,<1",
 ]
+usleep = [
+    "braindecode==2.0.0",
+]
 
 [project.scripts]
 sleep-stage = "sleep_staging.cli:app"

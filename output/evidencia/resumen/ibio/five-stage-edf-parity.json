@@ -1,0 +1,18 @@
+{
+  "record": "SC4001",
+  "fold": 0,
+  "training_device": "mps",
+  "edf_device": "cpu",
+  "arms": {
+    "triple": {
+      "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+      "rows": 2650,
+      "max_abs_difference": 1.7881393432617188e-07
+    },
+    "blend": {
+      "profile": "eeg_pz_oz",
+      "rows": 2650,
+      "max_abs_difference": 1.7881393432617188e-07
+    }
+  }
+}

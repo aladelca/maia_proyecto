@@ -2,5 +2,7 @@ FROM public.ecr.aws/lambda/python:3.12
 RUN dnf install -y libgomp && dnf clean all
 COPY containers/science.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 && \
+    pip install --no-cache-dir mne==1.13.2 pydantic==2.14.1 PyYAML==6.0.3
 COPY src/sleep_staging/ ${LAMBDA_TASK_ROOT}/sleep_staging/
 CMD ["sleep_staging.serving.worker.handler"]

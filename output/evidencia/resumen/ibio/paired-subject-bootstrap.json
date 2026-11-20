@@ -1,0 +1,54 @@
+[
+  {
+    "cohort": "development",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "macro_f1",
+    "delta": 0.011947282641781864,
+    "ci95": [
+      0.00575873691080415,
+      0.018610850693485087
+    ],
+    "subjects": 62
+  },
+  {
+    "cohort": "development",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "n1_f1",
+    "delta": 0.022083857788105177,
+    "ci95": [
+      0.009841668679098931,
+      0.03449791005366308
+    ],
+    "subjects": 62
+  },
+  {
+    "cohort": "development",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "macro_f1",
+    "delta": -0.004135443859829662,
+    "ci95": [
+      -0.010846218266204397,
+      0.0029579242938917007
+    ],
+    "subjects": 62
+  },
+  {
+    "cohort": "development",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "n1_f1",
+    "delta": -0.008302234271912456,
+    "ci95": [
+      -0.023095753510290837,
+      0.006001964849246829
+    ],
+    "subjects": 62
+  }
+]

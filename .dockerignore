@@ -10,6 +10,12 @@
 !src/sleep_staging/features/*.py
 !src/sleep_staging/data/
 !src/sleep_staging/data/*.py
+!src/sleep_staging/fullnight/
+!src/sleep_staging/fullnight/*.py
+!src/sleep_staging/models/
+!src/sleep_staging/models/__init__.py
+!src/sleep_staging/models/lstm.py
+!src/sleep_staging/models/tcn.py
 !services/
 !services/api/
 !services/api/*.py

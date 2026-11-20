@@ -16,6 +16,7 @@ locals {
   bucket      = var.inputs.buckets.jobs
   release     = var.inputs.buckets.releases
   obj         = var.inputs.objects
+  edf_enabled = try(local.obj.edf_model.key != "", false)
   machine_arn = "arn:aws:states:${var.region}:${data.aws_caller_identity.current.account_id}:stateMachine:${local.name}"
   components  = toset(["api", "worker", "states"])
   roles       = { for c in local.components : c => (var.existing_role_arn != "" ? var.existing_role_arn : aws_iam_role.component[c].arn) }
@@ -71,12 +72,12 @@ resource "aws_lambda_function" "app" {
   architectures = ["x86_64"]
   publish       = true
   memory_size   = each.key == "worker" ? 3072 : 512
-  timeout       = each.key == "worker" ? 120 : 20
+  timeout       = each.key == "worker" ? 300 : 20
   environment {
     variables = merge({ JOBS_BUCKET = local.bucket }, each.key == "api" ? {
-      MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256
+      MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256, EDF_ENABLED = local.edf_enabled ? "1" : "0"
       } : {
-      RELEASE_BUCKET = local.release, MANIFEST_KEY = local.obj.manifest.key, MANIFEST_VERSION = local.obj.manifest.version, MANIFEST_SHA256 = local.obj.manifest.sha256, OMP_NUM_THREADS = "2", OPENBLAS_NUM_THREADS = "1"
+      RELEASE_BUCKET = local.release, MANIFEST_KEY = local.obj.manifest.key, MANIFEST_VERSION = local.obj.manifest.version, MANIFEST_SHA256 = local.obj.manifest.sha256, OMP_NUM_THREADS = "2", OPENBLAS_NUM_THREADS = "1", EDF_MODEL_KEY = try(local.obj.edf_model.key, ""), EDF_MODEL_VERSION = try(local.obj.edf_model.version, ""), EDF_MODEL_SHA256 = try(local.obj.edf_model.sha256, "")
     })
   }
   depends_on = [aws_cloudwatch_log_group.app, aws_iam_role_policy_attachment.logging]
@@ -188,7 +189,7 @@ resource "aws_s3_bucket_cors_configuration" "jobs" {
   }
 }
 output "public_config" {
-  value = { api = aws_apigatewayv2_api.api.api_endpoint, issuer = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.users.id}", clientId = aws_cognito_user_pool_client.web.id, login = "https://${aws_cognito_user_pool_domain.login.domain}.auth.${var.region}.amazoncognito.com", origin = var.origin }
+  value = { api = aws_apigatewayv2_api.api.api_endpoint, edfEnabled = local.edf_enabled, issuer = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.users.id}", clientId = aws_cognito_user_pool_client.web.id, login = "https://${aws_cognito_user_pool_domain.login.domain}.auth.${var.region}.amazoncognito.com", origin = var.origin }
 }
 output "user_pool" { value = aws_cognito_user_pool.users.id }
 

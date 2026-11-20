@@ -143,3 +143,12 @@ header button {
     width: 100%;
   }
 }
+
+.panel select {
+  display: block;
+  margin: .4rem 0 1rem;
+  max-width: 100%;
+  padding: .55rem .75rem;
+  font: inherit;
+  color: inherit;
+}

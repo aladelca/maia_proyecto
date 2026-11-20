@@ -2,7 +2,7 @@
 
 Proyecto de grado de la Maestría en Inteligencia Artificial de la Universidad de los Andes. Integrantes: Carlos Adrián Alarcón Delgado, Andrés Enrique Bautista Pabón y John Janer Buila Ferrin.
 
-**[Abrir la aplicación desplegada](https://maia-sueno-dev-60306.vercel.app)** · [Operación en la nube](docs/cloud-operations.md) · [Modelo final](modelos/README.md) · [Resultados](docs/refinement-results.md) · [Inventario de datos](docs/epoch-inventory.md) · [Dataset Sleep-EDFx](https://physionet.org/content/sleep-edfx/1.0.0/)
+**[Abrir la aplicación desplegada](https://maia-sueno-dev-60306.vercel.app)** · [Operación en la nube](docs/cloud-operations.md) · [Modelo final](modelos/README.md) · [Resultados](docs/refinement-results.md) · [Modelos, predicciones y MLflow de IBIO](output/evidencia/README.md) · [Inventario de datos](docs/epoch-inventory.md) · [Dataset Sleep-EDFx](https://physionet.org/content/sleep-edfx/1.0.0/)
 
 ## Problema y solución
 
@@ -61,7 +61,7 @@ Los valores de la fila de ejemplo son ilustrativos. La API REST (`/public/v1`) y
 | `infra/<stack>/deploy.auto.tfvars.json` | `region`, `origin`, `images`, `inputs` (versión y SHA-256 del modelo), `monthly_budget` | Despliegue con Terraform |
 | Variables de la Lambda API | `JOBS_BUCKET`, `MACHINE_ARN`, `EXAMPLE_KEY`, `EXAMPLE_VERSION`, `EXAMPLE_SHA256` | Bucket de trabajos, flujo y noche de ejemplo |
 | Variables de la Lambda worker | `RELEASE_BUCKET`, `MANIFEST_KEY`, `MANIFEST_VERSION`, `MANIFEST_SHA256`, `OMP_NUM_THREADS` | Versión exacta del modelo y número de hilos |
-| `frontend/dist/config.json` | `api`, `origin` y los datos de Cognito (`issuer`, `clientId`, `login`), generados desde Terraform | Configuración del frontend |
+| `frontend/dist/config.json` | `api`, `origin`, `edfEnabled` y los datos de Cognito (`issuer`, `clientId`, `login`), generados desde Terraform | Configuración del frontend |
 
 Para cambiar la versión del modelo en producción basta con actualizar `inputs` y aplicar Terraform; no hay que modificar el código. Para volver a la versión anterior se aplica `live_version_arn`.
 
@@ -184,9 +184,15 @@ make check
 make test
 ```
 
+GitHub Actions ejecuta estos mismos comandos en cada pull request. Al integrar en `main`, publica la inferencia y el frontend tras una prueba de paridad. [Integración y entrega continuas](docs/cloud-operations.md#integración-y-entrega-continuas)
+
 Las pruebas de integración de señales y entrenamiento usan los EDF reales del piloto. Si aún no se descargaron, se marcan como omitidas; `make test` informa cuántas corrieron. Las pruebas unitarias de fórmulas y validación de metadatos no sustituyen un dataset experimental.
 
-El [plan de implementación](plans/20261020-1943-infraestructura-local-sleep-edfx-mlflow.md) conserva el avance y las ampliaciones pendientes. La evaluación final del test reservado, el análisis Telemetry y la integración para EDF nuevos permanecen pendientes.
+El [plan de implementación inicial](plans/20261020-1943-infraestructura-local-sleep-edfx-mlflow.md) conserva el historial del piloto. La campaña IBIO posterior completó la evaluación reservada, la transferencia a Telemetry y la carga de EDF completos.
+
+## Estadificación de un EDF completo
+
+La [guía de ejecución](docs/ibio-registro-completo.md) permite cargar una PSG, elegir entre 12 combinaciones de EEG, EOG y EMG y descargar un hipnograma con seis probabilidades por época. El [informe experimental](output/pdf/resultados-ibio-registro-completo.pdf) incluye las matrices de cinco y seis clases, los errores de N1 y la referencia U-Sleep reentrenada. En los 16 participantes reservados de Cassette, añadir el espectrograma elevó el F1 macro de cinco clases de 0,740 a 0,752. El modelo de movimiento detectó 5 de 13 épocas M.
 
 Datos y licencia: [Sleep-EDFx 1.0.0 en PhysioNet](https://physionet.org/content/sleep-edfx/1.0.0/), Open Data Commons Attribution License 1.0. Conservar las citas y atribución indicadas por el repositorio de origen al publicar resultados.
 
