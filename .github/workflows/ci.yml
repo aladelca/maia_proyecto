@@ -84,7 +84,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run build
+      - name: Compilar como Vercel y comprobar la configuración publicada
+        env:
+          MAIA_PUBLIC_CONFIG: '{"api":"https://api.example.test","edfEnabled":false}'
+        run: |
+          npm run build:vercel
+          node -e 'require("node:assert/strict").deepEqual(require("./dist/config.json"), JSON.parse(process.env.MAIA_PUBLIC_CONFIG))'
 
   containers:
     name: Contenedor · ${{ matrix.component }}

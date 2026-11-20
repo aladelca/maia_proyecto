@@ -21,4 +21,3 @@ phases:
 artifacts:
   files:
     - 'var/cloud/*-image.txt'
-    - 'frontend/dist/**/*'

@@ -21,10 +21,10 @@ locals {
   stages     = { Build = "build", Release = "release" }
   name       = "maia-sleep-dev-delivery"
 }
-resource "aws_secretsmanager_secret" "vercel" {
-  count       = var.enabled ? 1 : 0
-  name        = "maia/sleep/dev/vercel-token"
-  description = "Vercel deployment token, populated outside Terraform"
+# Preserve any existing secret when handing web deployments to Vercel.
+removed {
+  from = aws_secretsmanager_secret.vercel
+  lifecycle { destroy = false }
 }
 resource "aws_codebuild_project" "stage" {
   for_each      = var.enabled ? local.stages : {}
@@ -44,14 +44,6 @@ resource "aws_codebuild_project" "stage" {
     environment_variable {
       name  = "RESEARCH_BUCKET"
       value = var.research_bucket
-    }
-    dynamic "environment_variable" {
-      for_each = each.key == "Release" ? [1] : []
-      content {
-        name  = "VERCEL_API_TOKEN"
-        value = aws_secretsmanager_secret.vercel[0].arn
-        type  = "SECRETS_MANAGER"
-      }
     }
   }
 }

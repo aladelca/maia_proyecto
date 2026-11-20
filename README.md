@@ -61,7 +61,7 @@ Los valores de la fila de ejemplo son ilustrativos. La API REST (`/public/v1`) y
 | `infra/<stack>/deploy.auto.tfvars.json` | `region`, `origin`, `images`, `inputs` (versión y SHA-256 del modelo), `monthly_budget` | Despliegue con Terraform |
 | Variables de la Lambda API | `JOBS_BUCKET`, `MACHINE_ARN`, `EXAMPLE_KEY`, `EXAMPLE_VERSION`, `EXAMPLE_SHA256` | Bucket de trabajos, flujo y noche de ejemplo |
 | Variables de la Lambda worker | `RELEASE_BUCKET`, `MANIFEST_KEY`, `MANIFEST_VERSION`, `MANIFEST_SHA256`, `OMP_NUM_THREADS` | Versión exacta del modelo y número de hilos |
-| `frontend/dist/config.json` | `api`, `origin`, `edfEnabled` y los datos de Cognito (`issuer`, `clientId`, `login`), generados desde Terraform | Configuración del frontend |
+| `frontend/dist/config.json` | `api`, `origin`, `edfEnabled` y los datos de Cognito (`issuer`, `clientId`, `login`), tomados de la salida pública de Terraform y guardados en Vercel como `MAIA_PUBLIC_CONFIG` | Configuración del frontend |
 
 Para cambiar la versión del modelo en producción basta con actualizar `inputs` y aplicar Terraform; no hay que modificar el código. Para volver a la versión anterior se aplica `live_version_arn`.
 
@@ -184,7 +184,7 @@ make check
 make test
 ```
 
-GitHub Actions ejecuta estos mismos comandos en cada pull request. Al integrar en `main`, publica la inferencia y el frontend tras una prueba de paridad. [Integración y entrega continuas](docs/cloud-operations.md#integración-y-entrega-continuas)
+GitHub Actions ejecuta estos mismos comandos en cada pull request. Vercel compila `frontend/` y publica la web directamente en cada merge a `main`. GitHub Actions despliega los cambios del backend en AWS y comprueba la paridad de las predicciones. [Integración y entrega continuas](docs/cloud-operations.md#integración-y-entrega-continuas)
 
 Las pruebas de integración de señales y entrenamiento usan los EDF reales del piloto. Si aún no se descargaron, se marcan como omitidas; `make test` informa cuántas corrieron. Las pruebas unitarias de fórmulas y validación de metadatos no sustituyen un dataset experimental.
 

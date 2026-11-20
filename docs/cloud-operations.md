@@ -54,18 +54,14 @@ uv run --extra cloud python scripts/publish_cloud_inputs.py
 Definir `TF_VAR_project_name` y `TF_VAR_team_id` con el proyecto y equipo Vercel. La primera aplicación crea el proyecto para fijar el origen canónico. En una cuenta normal Terraform crea los roles por componente. En el laboratorio, proporcionar `--existing-role-arn` para la API y `--instance-profile` y `--job-role` para entrenamiento con los roles preexistentes.
 
 ```bash
-terraform -chdir=infra/vercel apply -var=publish=false
 python3 infra/scripts/configure-app.py --origin "https://${TF_VAR_project_name}.vercel.app"
 python3 infra/scripts/configure-training.py
 terraform -chdir=infra/training apply
 terraform -chdir=infra/aws apply
-npm --prefix frontend ci
-npm --prefix frontend run build
-terraform -chdir=infra/aws output -json public_config > frontend/dist/config.json
 terraform -chdir=infra/vercel apply
 ```
 
-Terraform guarda el estado cifrado, versionado y con bloqueo en S3, incluido el de bootstrap. La creación de buckets comprueba propietario y región mediante AWS CLI desde Terraform. Esto permite operar con las restricciones de lectura de Object Lock de la cuenta docente. Vercel recibe los archivos compilados de `frontend/dist`.
+Terraform guarda el estado cifrado, versionado y con bloqueo en S3, incluido el de bootstrap. La creación de buckets comprueba propietario y región mediante AWS CLI desde Terraform. Esto permite operar con las restricciones de lectura de Object Lock de la cuenta docente. Vercel usa su integración con GitHub para compilar los archivos de `frontend/`. La configuración pública del navegador se carga en el proyecto de Vercel. [Configuración de la entrega continua](#integración-y-entrega-continuas)
 
 ## Entrenar y promover
 
@@ -96,7 +92,7 @@ Al regenerar la configuración del laboratorio conservar `--existing-role-arn`. 
 
 ## Restaurar y automatizar la entrega
 
-Los ajustes aprobados se guardan en `delivery/config/{aws,vercel,training}.json` del bucket de investigación. Para respaldarlos ejecutar `uv run --extra cloud python infra/scripts/save-config.py` con los tres archivos locales `infra/<stack>/deploy.auto.tfvars.json`. El de Vercel incluye únicamente `team_id`, `project_name` y `publish`. Para restaurar un checkout:
+Los ajustes aprobados se guardan en `delivery/config/{aws,vercel,training}.json` del bucket de investigación. Para respaldarlos ejecutar `uv run --extra cloud python infra/scripts/save-config.py` con los tres archivos locales `infra/<stack>/deploy.auto.tfvars.json`. El de Vercel identifica el equipo y el proyecto. Las copias anteriores pueden incluir `publish`. Para restaurar un checkout:
 
 ```bash
 mkdir -p var/cloud
@@ -106,16 +102,20 @@ done
 python3 -c 'import json; from pathlib import Path; Path("var/cloud/inputs.json").write_text(json.dumps(json.load(open("infra/aws/deploy.auto.tfvars.json"))["inputs"]))'
 ```
 
-`infra/delivery` prepara la conexión a GitHub. La instalación de GitHub se autoriza una vez en la cuenta propietaria. Con una conexión disponible, `enabled=true`, `repository`, `research_bucket` y `deployment_role_arns` activan CodePipeline sobre `main`, con CodeBuild para validar, publicar imágenes por digest y desplegar AWS y Vercel. La política de release permite actualizar los servicios existentes. Los cambios de IAM y red se aplican antes desde la sesión de infraestructura. El valor del token de Vercel se carga en Secrets Manager fuera de Terraform. El laboratorio denegó `codestar-connections:CreateConnection`. Su entorno se desplegó con Terraform desde el checkout. Desde entonces, GitHub Actions automatiza la entrega, como describe la sección siguiente.
+`infra/delivery` prepara la conexión a GitHub. La instalación de GitHub se autoriza una vez en la cuenta propietaria. Con una conexión disponible, `enabled=true`, `repository`, `research_bucket` y `deployment_role_arns` activan CodePipeline sobre `main`, con CodeBuild para validar, publicar imágenes por digest y desplegar los componentes de AWS. La política de release permite actualizar los servicios existentes. Los cambios de IAM y red se aplican antes desde la sesión de infraestructura. El laboratorio denegó `codestar-connections:CreateConnection`. Su entorno se desplegó con Terraform desde el checkout. Actualmente GitHub Actions automatiza la entrega del backend.
 
 ## Integración y entrega continuas
 
-GitHub Actions valida cada pull request y despliega la inferencia al integrar en `main`. Reemplaza a CodePipeline en el laboratorio. Los buildspecs de `ci/` se conservan para una cuenta con CodeConnections.
+**Cada merge a `main` inicia una publicación de producción directamente en Vercel**, incluso cuando cambian archivos fuera de `frontend/`. El proyecto `maia-sueno-dev-60306` sigue la rama `main` de `aladelca/maia_proyecto`. Usa la raíz `frontend`, Vite, Node 22, `npm ci` y la salida `dist`. Las ramas de PR generan previews. El historial de producción de Vercel identifica el SHA publicado. [Despliegues Git de Vercel](https://vercel.com/docs/git)
+
+En la configuración del proyecto de Vercel, define `MAIA_PUBLIC_CONFIG` para **Production** y **Preview** con el JSON que devuelve `terraform -chdir=infra/aws output -json public_config`. Incluye la URL pública de la API, el indicador `edfEnabled` y los identificadores públicos de Cognito. El build escribe estos campos en `dist/config.json`. Al cambiar el endpoint o la disponibilidad de un modelo en AWS, actualiza el valor y vuelve a desplegar la revisión. El build de la web usa únicamente su repositorio y esta configuración pública.
+
+GitHub Actions valida los PR y despliega la inferencia cuando cambian archivos del backend. Los buildspecs de `ci/` siguen disponibles para una cuenta con CodeConnections.
 
 | Workflow | Cuándo corre | Qué hace |
 | --- | --- | --- |
 | `ci.yml` | Cada PR y antes de cada despliegue | `make check` y `make test` con torch CPU, `terraform fmt` y `validate` de cada stack, build del frontend y de las tres imágenes, con una importación del código dentro de cada una. |
-| `deploy.yml` | Push a `main` que modifica código servido, contenedores, `infra/aws`, `infra/vercel` o `ci/`. También se ejecuta a mano. | Repite CI, publica `api` y `worker` por digest, aplica `infra/aws`, ejecuta la prueba de paridad, registra las imágenes y publica Vercel. |
+| `deploy.yml` | Push a `main` que modifica la inferencia, sus contenedores, la infraestructura AWS o sus scripts de entrega. También admite ejecución manual. | Repite CI, publica `api` y `worker` por digest, aplica `infra/aws`, ejecuta la prueba de paridad y registra las imágenes. |
 | `code-review.yml` | PR del propio repositorio, con `CLAUDE_REVIEW=true` | Claude comenta hallazgos sobre fuga de datos, paridad, seguridad y Terraform. |
 | `security.yml` | PR, `main` y cada lunes | CodeQL para Python, TypeScript y workflows. Revisión de dependencias nuevas en los PR. |
 | `dependabot.yml` | Semanal o mensual | Propone actualizaciones de actions, npm y uv con siete días de espera desde su publicación. |
@@ -124,13 +124,13 @@ GitHub Actions valida cada pull request y despliega la inferencia al integrar en
 
 ### Qué hace un despliegue
 
-1. Lee `delivery/config/aws.json` y `vercel.json` del bucket de investigación y conserva el ETag del primero.
+1. Lee `delivery/config/aws.json` del bucket de investigación y conserva su ETag.
 2. Si cambió el backend, construye `api` y `worker`, los sube a ECR por digest y actualiza solo `images`. Un cambio de frontend o de documentación no publica versiones nuevas de Lambda.
 3. Planifica `infra/aws`. `ci/check-plan.py` rechaza cualquier destrucción o reemplazo, que debe aplicarse desde una sesión de infraestructura. El resumen del job lista los recursos modificados.
 4. Aplica el plan y ejecuta `scripts/smoke_cloud.py` con la noche de referencia de la release activa, descargada por VersionId y verificada por SHA-256. La prueba exige las mismas clases y probabilidades con una tolerancia de 10⁻⁶.
 5. Si la aplicación o la prueba fallan, vuelve a aplicar las imágenes registradas y repite la prueba. Un cambio de Terraform se revierte con un commit de revert, que pasa de nuevo por el workflow.
 6. Si la prueba pasa, escribe las imágenes nuevas en `delivery/config/aws.json` con `If-Match`. La escritura falla si alguien cambió el archivo durante el despliegue.
-7. Compila el frontend con la configuración pública y lo publica en Vercel. Con `RUN_E2E=true` o la opción manual `e2e`, ejecuta además Playwright contra el sitio.
+7. Con `RUN_E2E=true` o la opción manual `e2e`, ejecuta Playwright contra el sitio público.
 
 La promoción de modelos y el entrenamiento siguen siendo manuales. El workflow conserva el modelo de `inputs` y nunca modifica `live_version_arn`. Si esa variable fija una versión anterior, el job lo advierte.
 
@@ -141,7 +141,6 @@ Crear el environment `dev` y limitar sus despliegues a la rama `main`. Antes del
 | Tipo | Nombre | Valor |
 | --- | --- | --- |
 | Secreto de `dev` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Sesión de AWS Academy. `make ci-credentials` las copia desde `.env` con `gh`. |
-| Secreto de `dev` | `VERCEL_API_TOKEN` | Token de despliegue de Vercel. |
 | Secreto de `dev` | `DEMO_USERNAME`, `DEMO_PASSWORD` | Usuario Cognito de prueba. |
 | Variable de `dev` | `AWS_REGION` | Opcional. `us-west-2` por defecto. |
 | Variable de `dev` | `AWS_ROLE_ARN` | En una cuenta propia, rol con confianza OIDC para `repo:aladelca/maia_proyecto:environment:dev` y los permisos de build y release de `infra/delivery/roles.tf`. Reemplaza a los tres secretos de AWS. |
