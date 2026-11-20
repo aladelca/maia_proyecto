@@ -19,3 +19,12 @@ def validate_edf_profile(value: object) -> str:
     ):
         raise ValueError("La selección debe incluir al menos un EEG compatible.")
     return value
+
+
+LGBM_PROFILE = "eeg_fpz_cz+eeg_pz_oz+eog+emg"
+
+
+def validate_lgbm_profile(value: object) -> str:
+    if value not in ("auto", LGBM_PROFILE):
+        raise ValueError("LightGBM requiere los dos EEG, EOG y EMG submental.")
+    return LGBM_PROFILE

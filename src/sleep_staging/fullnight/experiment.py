@@ -44,6 +44,9 @@ def protocol_code() -> dict:
         pkg / "config.py",
         pkg / "sensor_profiles.py",
         pkg / "research_data.py",
+        pkg / "features/recording.py",
+        pkg / "features/research.py",
+        pkg / "features/extract.py",
     ]
     return {str(p.relative_to(pkg)): hash_file(p) for p in sorted(sources)}
 

@@ -217,3 +217,113 @@ def test_local_upload_and_cloud_worker_return_six_stage_hypnogram(
         payload["rows"] == 3
         and payload["epochs"][0]["prob_M"] == ans.json["epochs"][0]["prob_M"]
     )
+
+
+def test_lgbm_edf_features_and_mount(tmp_path):
+    from sleep_staging.serving.edf_lgbm import prepare_edf
+
+    names = ("EEG Fpz-Cz", "EEG Pz-Oz", "EOG horizontal", "EMG submental")
+    source = edf(tmp_path / "demo.edf", names, epochs=1)
+    frame = prepare_edf(source, "demo")
+    assert frame.shape == (1, 149)
+    assert frame.epoch_id.tolist() == ["demo:0"]
+    assert frame.eligible.all()
+    assert frame.filter(like="emg__emg_envelope__").shape[1] == 19
+    with pytest.raises(ValueError, match="EMG submental"):
+        prepare_edf(edf(source, names[:3]), "demo")
+    with pytest.raises(ValueError, match="duplicad"):
+        prepare_edf(edf(source, (*names, names[0])), "demo")
+    source.write_bytes(source.read_bytes()[:-10])
+    with pytest.raises(ValueError, match="Cabecera"):
+        prepare_edf(source, "demo")
+
+
+def test_edf_lgbm_worker_and_flat_epochs(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    from io import BytesIO
+    from unittest.mock import Mock
+
+    from botocore.response import StreamingBody
+
+    from sleep_staging.serving import worker
+    from sleep_staging.serving.contract import KEYS, LABELS, SCHEMA, context_matrix
+    from sleep_staging.serving.edf_lgbm import prepare_edf, score_night
+
+    names = ("EEG Fpz-Cz", "EEG Pz-Oz", "EOG horizontal", "EMG submental")
+    source = edf(tmp_path / "test.edf", names)
+    frame = prepare_edf(source, "test")
+    cols = [c for c in frame if c not in KEYS]
+    model = Mock(
+        classes_=np.array(LABELS), feature_names_in_=list(context_matrix(frame, cols))
+    )
+    model.predict_proba.side_effect = lambda x: np.tile([0, 0, 1, 0, 0], (len(x), 1))
+    manifest = {
+        "raw_columns": cols,
+        "model_columns": model.feature_names_in_,
+        "classes": LABELS,
+        "input_schema": SCHEMA,
+        "preprocessing_id": "sc-w30-context435-v1",
+        "release_id": "lgbm-test",
+    }
+    s3 = Mock()
+    data = source.read_bytes()
+    s3.get_object.return_value = {
+        "ContentLength": len(data),
+        "Body": StreamingBody(BytesIO(data), len(data)),
+    }
+    monkeypatch.setenv("JOBS_BUCKET", "jobs")
+    monkeypatch.setattr(worker.boto3, "client", lambda _: s3)
+    monkeypatch.setattr(worker, "load_release", lambda: (manifest, model))
+    event = {
+        "job": "test",
+        "owner": "u",
+        "example": False,
+        "format": "edf",
+        "model": "lightgbm",
+        "profile": "auto",
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "input_key": "test.edf",
+        "input_version": "1",
+    }
+    summary = worker.handler(event, None)
+    assert summary["classes"] == LABELS and summary["window"] == "full"
+    rows = json.loads(s3.put_object.call_args_list[0].kwargs["Body"])["epochs"]
+    assert len(rows) == 3 and all(r["prob_N2"] == 1 and "prob_M" not in r for r in rows)
+
+    frame.loc[1, "eligible"] = False
+    result = score_night(model, manifest, frame)
+    assert (
+        result.onset_s.tolist() == [0, 30, 60]
+        and result.loc[[0, 2], "prediction"].eq("N2").all()
+    )
+    assert result.loc[1].filter(like="prob_").isna().all()
+    passed = model.predict_proba.call_args.args[0]
+    assert passed.equals(context_matrix(frame.loc[[0, 2]], cols))
+
+    # Replace all samples with a constant digital value and keep the EDF header.
+    source.write_bytes(data[:1280] + bytes(len(data) - 1280))
+    flat = prepare_edf(source, "test")
+    assert not flat.eligible.any()
+    model.reset_mock()
+    assert score_night(model, manifest, flat).prediction.isna().all()
+    model.predict_proba.assert_not_called()
+
+
+def test_edf_lgbm_requires_native_envelope_and_ignores_partial_epoch(tmp_path):
+    from sleep_staging.serving.edf_lgbm import prepare_edf
+
+    names = ("EEG Fpz-Cz", "EEG Pz-Oz", "EOG horizontal", "EMG submental")
+    p = edf(tmp_path / "test.edf", names, epochs=2)
+    data = bytearray(p.read_bytes())
+    # Make two 20-second records at native rates, leaving a 10-second tail.
+    data[244:252] = b"20      "
+    start = 256 + 216 * 4
+    for i, n in enumerate((2000, 2000, 2000, 20)):
+        data[start + 8 * i : start + 8 * (i + 1)] = str(n).encode().ljust(8)
+    p.write_bytes(data[: 1280 + 2 * 2 * 6020])
+    assert prepare_edf(p, "test").onset_s.tolist() == [0]
+    data[start + 24 : start + 32] = b"2000    "
+    p.write_bytes(data[: 1280 + 2 * 2 * 8000])
+    with pytest.raises(ValueError, match="EMG submental a 1 Hz"):
+        prepare_edf(p, "test")

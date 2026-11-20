@@ -242,3 +242,72 @@ def test_anonymous_visitors_have_separate_jobs_and_upload_prefixes(monkeypatch):
         owners.append(s3.generate_presigned_post.call_args.kwargs["Key"].split("/")[1])
     assert owners[0] != owners[1]
     assert name == owners[0] + "-" + job
+
+
+@pytest.mark.parametrize("public", [False, True])
+def test_lightgbm_edf_is_independent_and_part_of_job_identity(monkeypatch, public):
+    monkeypatch.setenv("EDF_ENABLED", "0")
+    monkeypatch.setenv("EDF_LGBM_ENABLED", "1")
+    monkeypatch.setenv("JOBS_BUCKET", "jobs")
+    monkeypatch.setenv("MACHINE_ARN", "arn:example")
+    root = "/public/v1" if public else "/v1"
+    subject = None if public else "subject"
+    headers = {"Idempotency-Key": uuid4().hex, "X-Guest-Token": "b" * 64}
+    s3, states = Mock(), Mock()
+    monkeypatch.setattr(api, "client", lambda name: s3 if name == "s3" else states)
+    s3.generate_presigned_post.return_value = {
+        "fields": {},
+        "url": "https://example.test",
+    }
+    model = {"format": "edf", "model": "lightgbm"}
+    upload = {**model, "size": 512, "sha256": "a" * 64}
+    for invalid in [
+        {"model": "other"},
+        {"model": []},
+        {"profile": "eeg_pz_oz"},
+        {"format": "parquet", "model": "fullnight"},
+    ]:
+        assert (
+            invoke("POST", root + "/uploads", subject, {**upload, **invalid}, headers)[
+                "statusCode"
+            ]
+            == 400
+        )
+    assert not s3.generate_presigned_post.called
+    assert (
+        invoke("POST", root + "/uploads", subject, upload, headers)["statusCode"] == 201
+    )
+    s3.head_object.return_value = {
+        "ContentLength": 512,
+        "Metadata": {"sha256": "a" * 64},
+    }
+    request = {**model, "upload_id": uuid4().hex, "version_id": "v1"}
+    assert (
+        invoke("POST", root + "/predictions", subject, request, headers)["statusCode"]
+        == 202
+    )
+    payload = states.start_execution.call_args.kwargs["input"]
+    assert json.loads(payload)["model"] == "lightgbm"
+    states.start_execution.side_effect = ClientError(
+        {"Error": {"Code": "ExecutionAlreadyExists"}}, "StartExecution"
+    )
+    states.describe_execution.return_value = {"input": payload}
+    assert (
+        invoke("POST", root + "/predictions", subject, request, headers)["statusCode"]
+        == 202
+    )
+    monkeypatch.setenv("EDF_ENABLED", "1")
+    assert (
+        invoke(
+            "POST",
+            root + "/predictions",
+            subject,
+            {**request, "model": "fullnight"},
+            headers,
+        )["statusCode"]
+        == 409
+    )
+    monkeypatch.setenv("EDF_LGBM_ENABLED", "0")
+    assert (
+        invoke("POST", root + "/uploads", subject, upload, headers)["statusCode"] == 503
+    )

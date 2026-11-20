@@ -3,7 +3,12 @@ import { createRoot } from "react-dom/client";
 import { Project } from "./project";
 import "./style.css";
 
-type Config = { api: string; mode?: string; edfEnabled?: boolean };
+type Config = {
+  api: string;
+  mode?: string;
+  edfEnabled?: boolean;
+  edfLgbmEnabled?: boolean;
+};
 type Epoch = {
   epoch_id: string;
   onset_s: number;
@@ -270,6 +275,10 @@ function App({ cfg }: { cfg: Config }) {
   );
   const [result, setResult] = useState<Result | null>(null),
     [profile, setProfile] = useState("auto");
+  const [edfModel, setEdfModel] = useState(
+    cfg.edfEnabled ? "fullnight" : "lightgbm",
+  );
+  const acceptsEdf = cfg.edfEnabled || cfg.edfLgbmEnabled;
   async function api(path: string, opts: RequestInit = {}) {
     const r = await fetch(cfg.api + "/public" + path, {
       ...opts,
@@ -333,7 +342,7 @@ function App({ cfg }: { cfg: Config }) {
         const format = file?.name.toLowerCase().endsWith(".edf")
           ? "edf"
           : "parquet";
-        if (format === "edf" && !cfg.edfEnabled)
+        if (format === "edf" && !acceptsEdf)
           throw Error("Este entorno admite archivos Parquet de hasta 32 MiB.");
         if (
           !file ||
@@ -350,9 +359,18 @@ function App({ cfg }: { cfg: Config }) {
           ),
           (x) => x.toString(16).padStart(2, "0"),
         ).join("");
+        const modelOptions =
+          format === "edf" && edfModel === "lightgbm"
+            ? { model: "lightgbm", profile: "auto" }
+            : {};
         const form = await api("/v1/uploads", {
           method: "POST",
-          body: JSON.stringify({ size: file.size, sha256: digest, format }),
+          body: JSON.stringify({
+            size: file.size,
+            sha256: digest,
+            format,
+            ...modelOptions,
+          }),
         });
         const body = new FormData();
         for (const [k, v] of Object.entries(form.fields))
@@ -364,7 +382,8 @@ function App({ cfg }: { cfg: Config }) {
         if (!r.ok || !version)
           throw Error("No se pudo confirmar la versión del archivo subido.");
         input = { upload_id: form.upload_id, version_id: version };
-        if (format === "edf") Object.assign(input, { format, profile });
+        if (format === "edf")
+          Object.assign(input, { format, profile, ...modelOptions });
       }
       const key = crypto.randomUUID();
       const opts = {
@@ -420,18 +439,41 @@ function App({ cfg }: { cfg: Config }) {
         <section className="panel" id="analizar">
           <h2>Analizar una noche</h2>
           <label htmlFor="night">
-            {cfg.edfEnabled
+            {acceptsEdf
               ? "Registro EDF (128 MiB) o características Parquet (32 MiB)"
               : "Archivo de características · Parquet, hasta 32 MiB"}
           </label>
           <input
             id="night"
             type="file"
-            accept={cfg.edfEnabled ? ".parquet,.edf" : ".parquet"}
+            accept={acceptsEdf ? ".parquet,.edf" : ".parquet"}
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
-          {cfg.edfEnabled && file?.name.toLowerCase().endsWith(".edf") && (
-            <ProfilePicker value={profile} change={setProfile} />
+          {acceptsEdf && file?.name.toLowerCase().endsWith(".edf") && (
+            <>
+              {cfg.edfLgbmEnabled && (
+                <label>
+                  Modelo para EDF
+                  <select
+                    value={edfModel}
+                    onChange={(e) => setEdfModel(e.target.value)}
+                  >
+                    {cfg.edfEnabled && (
+                      <option value="fullnight">FullNightNet · 6 clases</option>
+                    )}
+                    <option value="lightgbm">LightGBM · 5 estadios</option>
+                  </select>
+                </label>
+              )}
+              {edfModel === "lightgbm" ? (
+                <p>
+                  Requiere EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, y la
+                  envolvente de EMG submental a 1 Hz.
+                </p>
+              ) : (
+                <ProfilePicker value={profile} change={setProfile} />
+              )}
+            </>
           )}
           <div className="actions">
             <button disabled={!!busy || !file} onClick={() => run(false)}>

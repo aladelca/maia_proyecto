@@ -13,7 +13,8 @@ test("la carga pública de EDF depende del modelo publicado y conserva la selecc
   edfEnabled = true;
   await page.reload();
   await expect(page.locator("#night")).toHaveAttribute(
-    "accept", ".parquet,.edf",
+    "accept",
+    ".parquet,.edf",
   );
 
   let token: string | undefined;
@@ -146,4 +147,109 @@ test("los 12 perfiles devuelven probabilidades por época del mismo EDF", async 
     expect(maxError, profile).toBeLessThan(1e-5);
     await res.dispose();
   }
+});
+
+for (const neural of [true, false]) {
+  test(`LightGBM con EDF y disponibilidad neuronal ${neural}`, async ({
+    page,
+  }) => {
+    await page.route("**/config.json", (route) =>
+      route.fulfill({
+        json: { api: "", edfEnabled: neural, edfLgbmEnabled: true },
+      }),
+    );
+    await page.route("**/public/v1/uploads", async (route) => {
+      expect(route.request().postDataJSON()).toMatchObject({
+        format: "edf",
+        model: "lightgbm",
+      });
+      await route.fulfill({
+        json: { fields: {}, upload_id: "test", url: "/signed-edf" },
+      });
+    });
+    await page.route("**/signed-edf", (route) =>
+      route.fulfill({ status: 201, headers: { "x-amz-version-id": "1" } }),
+    );
+    await page.route("**/public/v1/predictions", async (route) => {
+      expect(route.request().postDataJSON()).toMatchObject({
+        format: "edf",
+        model: "lightgbm",
+        profile: "auto",
+      });
+      await route.fulfill({ json: { job_id: "lgbm-test" } });
+    });
+    await page.route("**/public/v1/predictions/lgbm-test", (route) =>
+      route.fulfill({
+        json: {
+          state: "succeeded",
+          files: { json: "/night.json", csv: "/night.csv" },
+        },
+      }),
+    );
+    await page.route("**/night.json", (route) =>
+      route.fulfill({
+        json: {
+          model_version: "lgbm-test",
+          classes: ["W", "N1", "N2", "N3", "REM"],
+          rows: 1,
+          eligible: 1,
+          epochs: [
+            { epoch_id: "0", onset_s: 0, prediction: "N2", eligible: true },
+          ],
+        },
+      }),
+    );
+    await page.goto("/");
+    await page
+      .locator("#night")
+      .setInputFiles({
+        name: "demo.edf",
+        mimeType: "application/octet-stream",
+        buffer: Buffer.from("fixture"),
+      });
+    const choice = page.getByLabel("Modelo para EDF");
+    await expect(choice).toHaveValue(neural ? "fullnight" : "lightgbm");
+    await choice.selectOption("lightgbm");
+    await expect(page.getByLabel("Canales de entrada")).toHaveCount(0);
+    await page.getByRole("button", { name: "Generar predicción" }).click();
+    await expect(page.getByText("lgbm-test", { exact: true })).toBeVisible();
+    await expect(page.getByText("Movimiento", { exact: true })).toHaveCount(0);
+  });
+}
+
+test("el EDF sintético se procesa con el LightGBM publicado", async ({
+  page,
+}) => {
+  const file = process.env.MAIA_LGBM_DEMO_EDF;
+  test.skip(
+    !file,
+    "Requiere el EDF sintético de diez minutos y la API con LightGBM habilitado",
+  );
+  await page.goto("/");
+  await page.locator("#night").setInputFiles(file!);
+  await page.getByLabel("Modelo para EDF").selectOption("lightgbm");
+  await page.getByRole("button", { name: "Generar predicción" }).click();
+  await expect(
+    page.getByText("20 épocas analizadas · 0 excluidas"),
+  ).toBeVisible({ timeout: 120000 });
+  const resultPanel = page
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", { name: "Hipnograma predicho" }),
+    });
+  await expect(resultPanel.getByText(/^lgbm-/)).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Descargar probabilidades en CSV" })
+    .click();
+  const path = await (await download).path();
+  const lines = (await readFile(path!, "utf8")).trim().split(/\r?\n/);
+  expect(lines).toHaveLength(21);
+  expect(lines[0].split(",").filter((c) => c.startsWith("prob_"))).toEqual([
+    "prob_W",
+    "prob_N1",
+    "prob_N2",
+    "prob_N3",
+    "prob_REM",
+  ]);
 });

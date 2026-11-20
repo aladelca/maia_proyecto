@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from sleep_staging.data.edf import ALIASES, edf_channels, read_psg
+from sleep_staging.data.edf import ALIASES, read_psg, validated_edf_channels
 from sleep_staging.fullnight.data import CHANNELS, LABELS, PROFILES, Inputs, make_inputs
 from sleep_staging.fullnight.model import FullNightNet
 from sleep_staging.fullnight.training import (
@@ -21,44 +21,12 @@ from sleep_staging.fullnight.training import (
 )
 from sleep_staging.fullnight.trees import tree_features
 from sleep_staging.provenance import hash_file
-from sleep_staging.sensor_profiles import MAX_EDF_BYTES, validate_edf_profile
+from sleep_staging.sensor_profiles import validate_edf_profile
 
 
 def validate_edf(path: Path, profile: str) -> str:
     validate_edf_profile(profile)
-    size = path.stat().st_size
-    if not 256 <= size <= MAX_EDF_BYTES:
-        raise ValueError("EDF vacío, incompleto o de más de 128 MiB.")
-    with path.open("rb") as f:
-        h = f.read(256)
-        if h[:8].strip() != b"0" or b"EDF+D" in h[192:236]:
-            raise ValueError("Se requiere un EDF continuo con muestras de 16 bits.")
-        try:
-            channels = int(h[252:256])
-            header = int(h[184:192])
-            records = int(h[236:244])
-            seconds = float(h[244:252])
-            if (
-                not 1 <= channels <= 128
-                or header != 256 * (channels + 1)
-                or not 0 < seconds <= 3600
-                or records < 1
-            ):
-                raise ValueError()
-            block = f.read(256 * channels)
-            rates = [
-                int(block[216 * channels + 8 * i : 216 * channels + 8 * (i + 1)])
-                for i in range(channels)
-            ]
-            if (
-                min(rates) < 1
-                or size != header + 2 * records * sum(rates)
-                or not 30 <= records * seconds <= 48 * 3600
-            ):
-                raise ValueError()
-        except (ValueError, OverflowError) as e:
-            raise ValueError("Cabecera, duración o tamaño de EDF incompatible.") from e
-    infos = edf_channels(path)
+    infos = validated_edf_channels(path)
     names = [ALIASES[i["name"]] for i in infos if i["name"] in ALIASES]
     if profile == "auto":
         profile = validate_edf_profile("+".join(ch for ch in CHANNELS if ch in names))

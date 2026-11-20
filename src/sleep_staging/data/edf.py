@@ -8,6 +8,8 @@ from pathlib import Path
 import mne
 import numpy as np
 
+from sleep_staging.sensor_profiles import MAX_EDF_BYTES
+
 ALIASES = {
     "EEG Fpz-Cz": "eeg_fpz_cz",
     "EEG Pz-Oz": "eeg_pz_oz",
@@ -48,6 +50,43 @@ def edf_channels(path: Path) -> list[dict]:
         {"name": name, "unit": unit, "sfreq": rate}
         for name, unit, rate in zip(names, units, rates, strict=True)
     ]
+
+
+def validated_edf_channels(path: Path) -> list[dict]:
+    """Check record sizes and duration before reading untrusted samples."""
+    size = path.stat().st_size
+    if not 256 <= size <= MAX_EDF_BYTES:
+        raise ValueError("EDF vacío, incompleto o de más de 128 MiB.")
+    with path.open("rb") as f:
+        h = f.read(256)
+        if h[:8].strip() != b"0" or b"EDF+D" in h[192:236]:
+            raise ValueError("Se requiere un EDF continuo con muestras de 16 bits.")
+        try:
+            channels = int(h[252:256])
+            header = int(h[184:192])
+            records = int(h[236:244])
+            seconds = float(h[244:252])
+            if (
+                not 1 <= channels <= 128
+                or header != 256 * (channels + 1)
+                or not 0 < seconds <= 3600
+                or records < 1
+            ):
+                raise ValueError()
+            block = f.read(256 * channels)
+            rates = [
+                int(block[216 * channels + 8 * i : 216 * channels + 8 * (i + 1)])
+                for i in range(channels)
+            ]
+            if (
+                min(rates) < 1
+                or size != header + 2 * records * sum(rates)
+                or not 30 <= records * seconds <= 48 * 3600
+            ):
+                raise ValueError()
+        except (ValueError, OverflowError) as e:
+            raise ValueError("Cabecera, duración o tamaño de EDF incompatible.") from e
+    return edf_channels(path)
 
 
 def read_psg(
