@@ -1,79 +1,75 @@
 import { test, expect } from "@playwright/test";
-import { readFile } from "node:fs/promises";
 
-test("la carga pública de EDF depende del modelo publicado y conserva la selección de canales", async ({
+test("la interfaz publica una sola arquitectura y envía EDF al híbrido", async ({
   page,
 }) => {
-  let edfEnabled = false;
   await page.route("**/config.json", (route) =>
-    route.fulfill({ json: { api: "", edfEnabled } }),
+    route.fulfill({ json: { api: "" } }),
   );
-  await page.goto("/");
-  await expect(page.locator("#night")).toHaveAttribute("accept", ".parquet");
-  edfEnabled = true;
-  await page.reload();
-  await expect(page.locator("#night")).toHaveAttribute(
-    "accept",
-    ".parquet,.edf",
+  await page.route("**/public/v1/examples/default", (route) =>
+    route.fulfill({ json: { model_version: "stack-five-a64415fc2bd6" } }),
   );
-
-  let token: string | undefined;
   await page.route("**/public/v1/uploads", (route) => {
-    const req = route.request();
-    token = req.headers()["x-guest-token"];
-    expect(token).toMatch(/^[a-f0-9]{64}$/);
-    expect(req.postDataJSON()).toMatchObject({ format: "edf", size: 5 });
+    expect(route.request().headers()["x-guest-token"]).toMatch(
+      /^[a-f0-9]{64}$/,
+    );
+    expect(route.request().postDataJSON()).toMatchObject({
+      format: "edf",
+      model: "stack_five",
+    });
     return route.fulfill({
-      json: { fields: {}, upload_id: "night", url: "/signed-upload" },
+      json: { fields: {}, upload_id: "test", url: "/signed-edf" },
     });
   });
-  await page.route("**/signed-upload", (route) =>
-    route.fulfill({
-      status: 201,
-      headers: { "x-amz-version-id": "v1" },
-      body: "",
-    }),
+  await page.route("**/signed-edf", (route) =>
+    route.fulfill({ status: 201, headers: { "x-amz-version-id": "v1" } }),
   );
   await page.route("**/public/v1/predictions", (route) => {
-    expect(route.request().headers()["x-guest-token"]).toBe(token);
     expect(route.request().postDataJSON()).toEqual({
       format: "edf",
-      profile: "eeg_pz_oz",
-      upload_id: "night",
+      model: "stack_five",
+      upload_id: "test",
       version_id: "v1",
     });
-    return route.fulfill({ json: { job_id: "job-publico" } });
+    return route.fulfill({ json: { job_id: "stack-test" } });
   });
-  await page.route("**/public/v1/predictions/job-publico", (route) =>
+  await page.route("**/public/v1/predictions/stack-test", (route) =>
     route.fulfill({
       json: {
         state: "succeeded",
-        files: { json: "/result.json", csv: "/result.csv" },
+        files: { json: "/night.json", csv: "/night.csv" },
       },
     }),
   );
-  await page.route("**/result.json", (route) =>
+  await page.route("**/night.json", (route) =>
     route.fulfill({
       json: {
-        model_version: "edf",
-        profile: "eeg_pz_oz",
-        classes: ["W", "N1", "N2", "N3", "REM", "M"],
+        model_version: "stack-five-a64415fc2bd6",
+        classes: ["W", "N1", "N2", "N3", "REM"],
         rows: 1,
         eligible: 1,
-        epochs: [{ onset_s: 0, prediction: "N2", eligible: true }],
+        epochs: [
+          { epoch_id: "0", onset_s: 0, prediction: "N2", eligible: true },
+        ],
       },
     }),
   );
+  await page.goto("/");
+  await expect(page.locator("#night")).toHaveAttribute("accept", ".edf");
+  await expect(page.getByRole("combobox")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Cómo predice el modelo" }),
+  ).toBeVisible();
   await page.locator("#night").setInputFiles({
-    name: "noche.edf",
+    name: "demo.edf",
     mimeType: "application/octet-stream",
-    buffer: Buffer.from("demo\n"),
+    buffer: Buffer.from("fixture"),
   });
-  await page.getByLabel("Canales de entrada").selectOption("eeg_pz_oz");
   await page.getByRole("button", { name: "Generar predicción" }).click();
   await expect(page.getByRole("img", { name: /Hipnograma/ })).toBeVisible();
-  await expect(page.getByText("Canales utilizados · Pz-Oz")).toBeVisible();
-  await expect(page.getByText("Movimiento", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("stack-five-a64415fc2bd6", { exact: true }),
+  ).toBeVisible();
 });
 
 test("un EDF sin hipnograma produce seis probabilidades y un CSV", async ({
@@ -149,107 +145,42 @@ test("los 12 perfiles devuelven probabilidades por época del mismo EDF", async 
   }
 });
 
-for (const neural of [true, false]) {
-  test(`LightGBM con EDF y disponibilidad neuronal ${neural}`, async ({
-    page,
-  }) => {
-    await page.route("**/config.json", (route) =>
-      route.fulfill({
-        json: { api: "", edfEnabled: neural, edfLgbmEnabled: true },
-      }),
-    );
-    await page.route("**/public/v1/uploads", async (route) => {
-      expect(route.request().postDataJSON()).toMatchObject({
-        format: "edf",
-        model: "lightgbm",
-      });
-      await route.fulfill({
-        json: { fields: {}, upload_id: "test", url: "/signed-edf" },
-      });
-    });
-    await page.route("**/signed-edf", (route) =>
-      route.fulfill({ status: 201, headers: { "x-amz-version-id": "1" } }),
-    );
-    await page.route("**/public/v1/predictions", async (route) => {
-      expect(route.request().postDataJSON()).toMatchObject({
-        format: "edf",
-        model: "lightgbm",
-        profile: "auto",
-      });
-      await route.fulfill({ json: { job_id: "lgbm-test" } });
-    });
-    await page.route("**/public/v1/predictions/lgbm-test", (route) =>
-      route.fulfill({
-        json: {
-          state: "succeeded",
-          files: { json: "/night.json", csv: "/night.csv" },
-        },
-      }),
-    );
-    await page.route("**/night.json", (route) =>
-      route.fulfill({
-        json: {
-          model_version: "lgbm-test",
-          classes: ["W", "N1", "N2", "N3", "REM"],
-          rows: 1,
-          eligible: 1,
-          epochs: [
-            { epoch_id: "0", onset_s: 0, prediction: "N2", eligible: true },
-          ],
-        },
-      }),
-    );
-    await page.goto("/");
-    await page
-      .locator("#night")
-      .setInputFiles({
-        name: "demo.edf",
-        mimeType: "application/octet-stream",
-        buffer: Buffer.from("fixture"),
-      });
-    const choice = page.getByLabel("Modelo para EDF");
-    await expect(choice).toHaveValue(neural ? "fullnight" : "lightgbm");
-    await choice.selectOption("lightgbm");
-    await expect(page.getByLabel("Canales de entrada")).toHaveCount(0);
-    await page.getByRole("button", { name: "Generar predicción" }).click();
-    await expect(page.getByText("lgbm-test", { exact: true })).toBeVisible();
-    await expect(page.getByText("Movimiento", { exact: true })).toHaveCount(0);
-  });
-}
-
-test("el EDF sintético se procesa con el LightGBM publicado", async ({
+test("el laboratorio espera la release elegida antes de admitir predicciones", async ({
   page,
 }) => {
-  const file = process.env.MAIA_LGBM_DEMO_EDF;
-  test.skip(
-    !file,
-    "Requiere el EDF sintético de diez minutos y la API con LightGBM habilitado",
+  await page.route("**/config.json", (route) =>
+    route.fulfill({ json: { api: "" } }),
+  );
+  await page.route("**/public/v1/examples/default", (route) =>
+    route.fulfill({ json: { example: "default" } }),
   );
   await page.goto("/");
-  await page.locator("#night").setInputFiles(file!);
-  await page.getByLabel("Modelo para EDF").selectOption("lightgbm");
-  await page.getByRole("button", { name: "Generar predicción" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "La API aún no confirma",
+  );
+  await expect(
+    page.getByRole("button", { name: "Probar ejemplo público" }),
+  ).toBeDisabled();
+});
+
+test("la release local procesa la muestra con las cinco etapas y exporta el CSV", async ({
+  page,
+}) => {
+  test.skip(
+    !process.env.MAIA_LOCAL_STACK,
+    "Requiere el servidor local del híbrido.",
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Probar ejemplo público" }).click();
   await expect(
     page.getByText("20 épocas analizadas · 0 excluidas"),
-  ).toBeVisible({ timeout: 120000 });
-  const resultPanel = page
-    .locator("section")
-    .filter({
-      has: page.getByRole("heading", { name: "Hipnograma predicho" }),
-    });
-  await expect(resultPanel.getByText(/^lgbm-/)).toBeVisible();
-  const download = page.waitForEvent("download");
+  ).toBeVisible({ timeout: 60000 });
+  await expect(
+    page.getByText("stack-five-a64415fc2bd6", { exact: true }),
+  ).toBeVisible();
+  const event = page.waitForEvent("download");
   await page
     .getByRole("button", { name: "Descargar probabilidades en CSV" })
     .click();
-  const path = await (await download).path();
-  const lines = (await readFile(path!, "utf8")).trim().split(/\r?\n/);
-  expect(lines).toHaveLength(21);
-  expect(lines[0].split(",").filter((c) => c.startsWith("prob_"))).toEqual([
-    "prob_W",
-    "prob_N1",
-    "prob_N2",
-    "prob_N3",
-    "prob_REM",
-  ]);
+  expect((await event).suggestedFilename()).toBe("hipnograma.csv");
 });

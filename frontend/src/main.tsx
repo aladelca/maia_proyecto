@@ -6,8 +6,6 @@ import "./style.css";
 type Config = {
   api: string;
   mode?: string;
-  edfEnabled?: boolean;
-  edfLgbmEnabled?: boolean;
 };
 type Epoch = {
   epoch_id: string;
@@ -28,6 +26,7 @@ type Job = {
   reason?: string;
   files?: { json: string; csv: string };
 };
+const releaseVersion = "stack-five-a64415fc2bd6";
 const baseStages = ["W", "REM", "N1", "N2", "N3"];
 const sleepNames: Record<string, string> = {
   W: "Vigilia",
@@ -174,24 +173,29 @@ function ResultPanel({
     </section>
   );
 }
-function LocalLab() {
+function LocalLab({ stack = false }: { stack?: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [profile, setProfile] = useState("auto");
   const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function infer() {
-    if (!file) return;
+  async function infer(example = false) {
+    if (!file && !example) return;
     setError("");
     setResult(null);
     setBusy(true);
     try {
-      if (!file.size || file.size > 128 * 1024 ** 2)
-        throw Error("Selecciona un EDF de hasta 128 MiB.");
       const body = new FormData();
-      body.append("file", file);
-      body.append("profile", profile);
-      const response = await fetch("/v1/edf", { method: "POST", body });
+      if (!example && file) {
+        if (!file.size || file.size > 128 * 1024 ** 2)
+          throw Error("Selecciona un EDF de hasta 128 MiB.");
+        body.append("file", file);
+        if (!stack) body.append("profile", profile);
+      }
+      const response = await fetch(example ? "/v1/edf/example" : "/v1/edf", {
+        method: "POST",
+        body,
+      });
       const payload = await response.json();
       if (!response.ok)
         throw Error(payload.error ?? "No se pudo procesar el registro.");
@@ -237,16 +241,33 @@ function LocalLab() {
               setResult(null);
             }}
           />
-          <ProfilePicker value={profile} change={setProfile} />
+          {stack ? (
+            <p>
+              Se requieren ambos EEG, EOG horizontal a 100 Hz y la envolvente
+              EMG submental a 1 Hz.
+            </p>
+          ) : (
+            <ProfilePicker value={profile} change={setProfile} />
+          )}
           <div className="actions">
-            <button disabled={busy || !file} onClick={infer}>
+            <button disabled={busy || !file} onClick={() => infer()}>
               Generar predicción
             </button>
+            {stack && (
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => infer(true)}
+              >
+                Probar ejemplo público
+              </button>
+            )}
           </div>
           {busy && <p role="status">Procesando el registro completo…</p>}
           {error && <p role="alert">{error}</p>}
         </section>
         {result && <ResultPanel result={result} download={download} />}
+        {stack && <Project />}
       </main>
     </>
   );
@@ -264,21 +285,36 @@ function guestToken() {
 }
 
 function App({ cfg }: { cfg: Config }) {
+  const [available, setAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(cfg.api + "/public/v1/examples/default", {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(
+        async (response) =>
+          response.ok &&
+          (await response.json()).model_version === releaseVersion,
+      )
+      .then((active) => {
+        if (!controller.signal.aborted) setAvailable(active);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setAvailable(false);
+      });
+    return () => controller.abort();
+  }, [cfg.api]);
   const [busy, setBusy] = useState(""),
     [error, setError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [job, setJob] = useState(
     () =>
       new URLSearchParams(location.search).get("job") ??
-      sessionStorage.getItem("maia-guest-job") ??
+      sessionStorage.getItem("maia-stack-five-job") ??
       "",
   );
-  const [result, setResult] = useState<Result | null>(null),
-    [profile, setProfile] = useState("auto");
-  const [edfModel, setEdfModel] = useState(
-    cfg.edfEnabled ? "fullnight" : "lightgbm",
-  );
-  const acceptsEdf = cfg.edfEnabled || cfg.edfLgbmEnabled;
+  const [result, setResult] = useState<Result | null>(null);
   async function api(path: string, opts: RequestInit = {}) {
     const r = await fetch(cfg.api + "/public" + path, {
       ...opts,
@@ -314,6 +350,10 @@ function App({ cfg }: { cfg: Config }) {
         const f = await fetch(status.files.json);
         if (!f.ok) throw Error("No se pudo descargar el resultado.");
         const data = await f.json();
+        if (data.model_version !== releaseVersion)
+          throw Error(
+            "Este resultado pertenece a una versión anterior. Vuelve a analizar el EDF con el modelo publicado.",
+          );
         if (active) {
           setResult(data);
           setBusy("");
@@ -337,39 +377,31 @@ function App({ cfg }: { cfg: Config }) {
     setResult(null);
     setJob("");
     try {
-      let input: Record<string, string> = { example: "default" };
+      let input: Record<string, string> = {
+        example: "default",
+        model: "stack_five",
+      };
       if (!example) {
-        const format = file?.name.toLowerCase().endsWith(".edf")
-          ? "edf"
-          : "parquet";
-        if (format === "edf" && !acceptsEdf)
-          throw Error("Este entorno admite archivos Parquet de hasta 32 MiB.");
         if (
           !file ||
-          file.size > (format === "edf" ? 128 : 32) * 1024 ** 2 ||
           !file.size ||
-          !/\.(edf|parquet)$/i.test(file.name)
+          file.size > 128 * 1024 ** 2 ||
+          !/\.edf$/i.test(file.name)
         )
-          throw Error(
-            "Selecciona un EDF de hasta 128 MiB o un Parquet de hasta 32 MiB.",
-          );
+          throw Error("Selecciona una polisomnografía EDF de hasta 128 MiB.");
         const digest = Array.from(
           new Uint8Array(
             await crypto.subtle.digest("SHA-256", await file.arrayBuffer()),
           ),
           (x) => x.toString(16).padStart(2, "0"),
         ).join("");
-        const modelOptions =
-          format === "edf" && edfModel === "lightgbm"
-            ? { model: "lightgbm", profile: "auto" }
-            : {};
         const form = await api("/v1/uploads", {
           method: "POST",
           body: JSON.stringify({
             size: file.size,
             sha256: digest,
-            format,
-            ...modelOptions,
+            format: "edf",
+            model: "stack_five",
           }),
         });
         const body = new FormData();
@@ -381,9 +413,12 @@ function App({ cfg }: { cfg: Config }) {
         const version = r.headers.get("x-amz-version-id");
         if (!r.ok || !version)
           throw Error("No se pudo confirmar la versión del archivo subido.");
-        input = { upload_id: form.upload_id, version_id: version };
-        if (format === "edf")
-          Object.assign(input, { format, profile, ...modelOptions });
+        input = {
+          upload_id: form.upload_id,
+          version_id: version,
+          format: "edf",
+          model: "stack_five",
+        };
       }
       const key = crypto.randomUUID();
       const opts = {
@@ -399,7 +434,7 @@ function App({ cfg }: { cfg: Config }) {
         accepted = await api("/v1/predictions", opts);
       }
       history.replaceState(null, "", "?job=" + accepted.job_id);
-      sessionStorage.setItem("maia-guest-job", accepted.job_id);
+      sessionStorage.setItem("maia-stack-five-job", accepted.job_id);
       setJob(accepted.job_id);
       setBusy("Procesando la noche…");
     } catch (e) {
@@ -424,7 +459,7 @@ function App({ cfg }: { cfg: Config }) {
           <a href="#analizar">Analizar</a>
           <a href="#proyecto">Proyecto</a>
           <a href="#modelo">Modelo</a>
-          <a href="#experimentos">Experimentos</a>
+          <a href="#experimentos">Resultados</a>
         </nav>
       </header>
       <main>
@@ -432,56 +467,42 @@ function App({ cfg }: { cfg: Config }) {
           <p className="eyebrow">SLEEP CASSETTE · 30 S</p>
           <h1>Análisis del sueño</h1>
           <p>
-            Explora la secuencia de estadios de una noche completa a partir de
-            sus características fisiológicas.
+            Sube una polisomnografía para obtener el hipnograma y la
+            probabilidad de cada etapa del sueño en intervalos de 30 segundos.
           </p>
         </div>
         <section className="panel" id="analizar">
           <h2>Analizar una noche</h2>
           <label htmlFor="night">
-            {acceptsEdf
-              ? "Registro EDF (128 MiB) o características Parquet (32 MiB)"
-              : "Archivo de características · Parquet, hasta 32 MiB"}
+            Polisomnografía en formato EDF · hasta 128 MiB
           </label>
           <input
             id="night"
             type="file"
-            accept={acceptsEdf ? ".parquet,.edf" : ".parquet"}
+            accept=".edf"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
-          {acceptsEdf && file?.name.toLowerCase().endsWith(".edf") && (
-            <>
-              {cfg.edfLgbmEnabled && (
-                <label>
-                  Modelo para EDF
-                  <select
-                    value={edfModel}
-                    onChange={(e) => setEdfModel(e.target.value)}
-                  >
-                    {cfg.edfEnabled && (
-                      <option value="fullnight">FullNightNet · 6 clases</option>
-                    )}
-                    <option value="lightgbm">LightGBM · 5 estadios</option>
-                  </select>
-                </label>
-              )}
-              {edfModel === "lightgbm" ? (
-                <p>
-                  Requiere EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, y la
-                  envolvente de EMG submental a 1 Hz.
-                </p>
-              ) : (
-                <ProfilePicker value={profile} change={setProfile} />
-              )}
-            </>
+          <p className="caption">
+            Se requieren EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, y la
+            envolvente de EMG submental a 1 Hz. El ejemplo utiliza diez minutos
+            de señal sintética.
+          </p>
+          {available === false && (
+            <p role="status">
+              La API aún no confirma la disponibilidad de esta versión. Vuelve a
+              cargar la página para comprobarla.
+            </p>
           )}
           <div className="actions">
-            <button disabled={!!busy || !file} onClick={() => run(false)}>
+            <button
+              disabled={!!busy || !file || !available}
+              onClick={() => run(false)}
+            >
               Generar predicción
             </button>
             <button
               className="secondary"
-              disabled={!!busy}
+              disabled={!!busy || !available}
               onClick={() => run(true)}
             >
               Probar ejemplo público
@@ -501,7 +522,15 @@ const root = createRoot(document.getElementById("root")!);
   const response = await fetch("/config.json", { cache: "no-store" });
   if (!response.ok) throw Error();
   const cfg: Config = await response.json();
-  root.render(cfg.mode === "local" ? <LocalLab /> : <App cfg={cfg} />);
+  root.render(
+    cfg.mode === "local-stack" ? (
+      <LocalLab stack />
+    ) : cfg.mode === "local" ? (
+      <LocalLab />
+    ) : (
+      <App cfg={cfg} />
+    ),
+  );
 })().catch(() =>
   root.render(
     <main role="alert">

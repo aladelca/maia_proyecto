@@ -9,3 +9,5 @@ Para puntuar un EDF en CPU desde la raíz:
 ```
 
 La API publicada admite únicamente EDF con ambos EEG, EOG horizontal y EMG submental en envolvente. Las solicitudes de carga y de predicción envían `format="edf"` y pueden fijar `model="stack_five"`. El ejemplo se ejecuta con el mismo worker y devuelve veinte épocas de demostración. El historial científico y los artefactos originales se conservan en MLflow. [Resultados de la evaluación pareada](../../docs/comparacion-fullnight-lightgbm.md)
+
+Para usar el modelo con la interfaz en este equipo, ejecuta `npm --prefix frontend run build` y `.venv/bin/python scripts/serve_stack.py`. [Abrir el laboratorio local](http://127.0.0.1:8775).
