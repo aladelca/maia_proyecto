@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Project } from "./project";
 import "./style.css";
 
 type Config = { api: string; mode?: string; edfEnabled?: boolean };
@@ -400,6 +401,12 @@ function App({ cfg }: { cfg: Config }) {
       <header>
         <strong>MAIA</strong>
         <span>Laboratorio del sueño</span>
+        <nav aria-label="Secciones">
+          <a href="#analizar">Analizar</a>
+          <a href="#proyecto">Proyecto</a>
+          <a href="#modelo">Modelo</a>
+          <a href="#experimentos">Experimentos</a>
+        </nav>
       </header>
       <main>
         <div className="intro">
@@ -410,7 +417,7 @@ function App({ cfg }: { cfg: Config }) {
             sus características fisiológicas.
           </p>
         </div>
-        <section className="panel">
+        <section className="panel" id="analizar">
           <h2>Analizar una noche</h2>
           <label htmlFor="night">
             {cfg.edfEnabled
@@ -442,6 +449,7 @@ function App({ cfg }: { cfg: Config }) {
           {error && <p role="alert">{error}</p>}
         </section>
         {result && <ResultPanel result={result} download={download} />}
+        <Project />
       </main>
     </>
   );
