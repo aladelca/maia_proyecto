@@ -42,8 +42,10 @@ def create_app(
                 path = Path(folder) / "input.edf"
                 incoming.save(path)
                 frame, used = predict_edf(path, net, profile, "night", device)
-        except (ValueError, EOFError, OverflowError, OSError) as exc:
-            return jsonify(error=str(exc)), 400
+        except (ValueError, EOFError, OverflowError, OSError):
+            return jsonify(
+                error="No se pudo leer el EDF. Comprueba el archivo y los canales seleccionados."
+            ), 400
         return jsonify(
             **edf_summary(frame, used, meta),
             epochs=json.loads(frame.to_json(orient="records", double_precision=15)),

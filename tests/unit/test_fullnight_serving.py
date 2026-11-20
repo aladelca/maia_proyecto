@@ -180,6 +180,16 @@ def test_local_upload_and_cloud_worker_return_six_stage_hypnogram(
         ).status_code
         == 400
     )
+    with monkeypatch.context() as local:
+        local.setattr(
+            "sleep_staging.serving.local_edf.predict_edf",
+            Mock(side_effect=OSError("internal filesystem details")),
+        )
+        unreadable = api.post("/v1/edf", data={"file": (BytesIO(data), "test.edf")})
+        assert unreadable.status_code == 400
+        assert unreadable.json == {
+            "error": "No se pudo leer el EDF. Comprueba el archivo y los canales seleccionados."
+        }
     s3 = Mock()
     s3.get_object.return_value = {
         "ContentLength": len(data),
