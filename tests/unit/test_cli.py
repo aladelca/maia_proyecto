@@ -1,5 +1,6 @@
 import json
 
+from click import unstyle
 from typer.testing import CliRunner
 
 from sleep_staging.cli import app
@@ -20,5 +21,6 @@ def test_doctor_reports_local_environment_and_missing_server(monkeypatch, tmp_pa
 def test_prediction_cli_exposes_documented_options():
     result = CliRunner().invoke(app, ["predict", "--help"])
     assert result.exit_code == 0
-    assert "--model-uri" in result.output
-    assert "--output" in result.output
+    help_text = unstyle(result.output)
+    assert "--model-uri" in help_text
+    assert "--output" in help_text
