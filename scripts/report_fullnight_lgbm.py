@@ -165,7 +165,7 @@ def report(out: Path, dest: Path) -> pd.DataFrame:
     foldrows = metrics[metrics["sample"].str.startswith("fold-")]
     summary = (
         foldrows.groupby("arm")
-        .macro_f1.agg(cv_macro_f1="mean", cv_sd="std")
+        .macro_f1.agg(cv_macro_f1="mean", cv_sd=lambda folds: folds.std(ddof=0))
         .join(
             metrics[metrics["sample"].eq("reserved")]
             .set_index("arm")[["macro_f1", "accuracy", "f1_N1", "kappa"]]
@@ -183,6 +183,9 @@ def report(out: Path, dest: Path) -> pd.DataFrame:
         summary.loc["lightgbm_release", "cv_macro_f1"],
         historical["f1_macro"],
         atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        summary.loc["lightgbm_release", "cv_sd"], historical["f1_std"], atol=1e-12
     )
     summary.to_csv(dest / "leaderboard.csv")
     return summary
