@@ -1,4 +1,9 @@
-# Modelos
+# Modelo publicado
+
+El clasificador híbrido combina 435 características del EDF con cinco probabilidades de FullNightNet. [Pesos, versión y ejecución local](stack_five/README.md) · [Evaluación emparejada](../docs/comparacion-fullnight-lightgbm.md)
+
+## Referencia histórica de LightGBM
+
 
 Esta carpeta documenta el modelo final que usa la aplicación desplegada y cómo obtenerlo o reconstruirlo. Los binarios no se versionan en Git: el modelo se publica en un bucket S3 versionado y cada versión queda identificada por su SHA-256.
 

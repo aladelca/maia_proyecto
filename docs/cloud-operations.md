@@ -1,30 +1,10 @@
 # Operación del laboratorio de sueño
 
-El frontend procesa noches Sleep Cassette preparadas y devuelve W, N1, N2, N3 y REM por época de 30 segundos. El modelo inicial es el LightGBM ajustado del proyecto. Su F1 macro histórico de desarrollo es 0,7893. El refit usa los 62 sujetos de desarrollo y reserva los 16 sujetos del test. [Resultados científicos](refinement-results.md)
+El laboratorio utiliza el híbrido FullNightNet y LightGBM de la corrida a64415fc2bd649b39c6fd158994b0479. Una rama aporta 435 características y otra aporta cinco probabilidades neuronales. El clasificador final predice cinco etapas por época de 30 segundos. [Arquitectura y resultados](comparacion-fullnight-lightgbm.md)
 
 ## Probar la aplicación
 
-Abre [el laboratorio en Vercel](https://maia-sueno-dev-60306.vercel.app) y selecciona **Probar ejemplo público**. Puedes recargar la página mientras se procesa la noche. Al terminar verás el hipnograma, el tiempo por estadio, la versión del modelo y la descarga del CSV. Para analizar una noche propia, selecciona el EDF de la polisomnografía o el Parquet de una noche preparada y pulsa **Generar predicción**. Con un EDF puedes elegir los canales de entrada.
-
-| Entrada | Contrato |
-| --- | --- |
-| Registro | Un `recording_id`, `epoch_id` únicos, `onset_s` entero sobre una cuadrícula de 30 s y `eligible` booleano. Los identificadores comienzan por un carácter alfanumérico y admiten letras, dígitos, punto, dos puntos, guion y guion bajo. |
-| Señales | Las 145 columnas flotantes y finitas de `raw_columns` del manifiesto. Incluir las épocas excluidas que aportan contexto. El worker deriva las otras 290 columnas dentro de la noche. |
-| Procedencia | Metadatos Parquet `input_schema=sleep-cassette-night-v1` y `preprocessing_id=sc-w30-context435-v1`. El recorte usa el protocolo retrospectivo del proyecto. |
-| Límites | 32 MiB comprimidos, 3.000 épocas, 128 grupos de filas y 64 MiB de tamaño declarado sin comprimir. |
-
-El entorno ofrece carga EDF cuando el manifiesto incluye el modelo de registro completo y `config.json` publica `edfEnabled: true`. En ese caso, el formulario acepta un EDF de hasta 128 MiB y permite escoger las señales. La API recibe `"format":"edf"` tanto al autorizar la carga como al iniciar la predicción, y admite `profile` en la segunda solicitud. [Perfiles, contrato EDF e inferencia local](ibio-registro-completo.md)
-
-El exportador escribe la noche de ejemplo en `var/cloud/bundle/example.parquet`. Un operador puede recuperarla con `aws s3api get-object` usando `buckets.releases` y el par `key/version` de `objects["example.parquet"]` en `inputs.json`.
-
-### Cinco estadios con LightGBM desde un EDF
-
-Cuando el entorno ofrece **LightGBM · 5 estadios**, el formulario EDF permite elegirlo. La release `sc-w30-context435-v1` requiere EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, además de EMG submental en envolvente a 1 Hz. Procesa los intervalos completos de 30 s de todo el registro. Los huecos por Fpz-Cz plano conservan su posición y sus probabilidades quedan vacías. Para ejecutar el mismo modelo en CPU con el paquete de inferencia local.
-
-```bash
-uv run --locked --extra boosting python scripts/predict_edf_lgbm.py \
-  --edf noche.edf --bundle var/cloud/bundle --output hipnograma.csv
-```
+En el [laboratorio de sueño](https://maia-sueno-dev-60306.vercel.app), selecciona **Probar ejemplo público** para procesar diez minutos de señal sintética. Para analizar una noche propia, selecciona un EDF y pulsa **Generar predicción**. El archivo debe contener EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, y EMG submental en envolvente a 1 Hz. El tamaño máximo es 128 MiB y la duración admitida es de 30 segundos a 48 horas. El ejemplo y las cargas usan los mismos pesos incluidos en la imagen del worker. [Ejemplo EDF](../output/demo-sueno-sintetico-10min.edf) · [Ejecución local](../modelos/stack_five/README.md)
 
 ### API
 
@@ -37,11 +17,9 @@ El laboratorio se abre directamente. Las operaciones de la tabla están disponib
 | `POST /public/v1/predictions` con cabecera UUID `Idempotency-Key` | Acepta `{"example":"default"}` o `{"upload_id":"…","version_id":"…"}`. Devuelve HTTP 202 y `status_url`. Reutilizar la clave con otro archivo devuelve HTTP 409. |
 | `GET /public/v1/predictions/{job}` | Estado y enlaces temporales al JSON y al CSV. Consultar de nuevo para renovar los enlaces. |
 
-En ambas solicitudes de carga y predicción para LightGBM se envían `format="edf"` y `model="lightgbm"`. El perfil admite `auto` o `eeg_fpz_cz+eeg_pz_oz+eog+emg`. Para FullNightNet basta con `format="edf"` y el perfil deseado. Cambiar el modelo requiere una clave de idempotencia nueva. La respuesta de LightGBM incluye la versión de la release, el perfil, `window="full"` y las cinco clases.
+La carga y la predicción envían el formato EDF y el identificador de modelo stack_five. El ejemplo acepta {"example":"default","model":"stack_five"}. La respuesta identifica la release, la corrida MLflow, el perfil, la ventana completa y las cinco clases. Las cargas y resultados expiran a partir de siete días por política de S3. El worker fija la versión del archivo y verifica su SHA-256.
 
-Las cargas y resultados expiran a partir de siete días por política de S3. El worker fija la versión del archivo y verifica su SHA-256. Verifica también el manifiesto y el modelo antes de cargar el pipeline.
-
-## Desplegar desde la raíz del repositorio
+## Infraestructura y releases históricas
 
 Se necesitan AWS CLI, Terraform ≥1.10, Docker con buildx, Node 22 y uv. Para las credenciales temporales locales usar variables AWS estándar en `.env` con permisos 600. Cargarlas en la sesión con `set -a; source .env; set +a`. El proveedor Vercel lee `VERCEL_API_TOKEN`. Los contenedores ejecutados en AWS reciben credenciales de rol.
 
@@ -65,7 +43,7 @@ uv run --extra cloud python scripts/publish_cloud_inputs.py \
 
 `--edf-run` publica los pesos congelados del modelo EDF (`freeze.json` → `edf_model`) en `releases/ibio-edf/<sha256>/model.pt` y añade `objects.edf_model` a `inputs.json`. Con ese puntero, Terraform activa `EDF_ENABLED` en la API, pasa la clave, la versión y el SHA-256 al worker y publica `edfEnabled: true` en `public_config`. Para habilitar EDF en un entorno existente basta con añadir el puntero a `inputs.objects` de `delivery/config/aws.json` y aplicar `infra/aws`.
 
-LightGBM desde EDF utiliza el modelo tabular ya publicado. Para habilitarlo en un entorno, establecer `edf_lgbm_enabled=true` en la configuración AWS aprobada (`delivery/config/aws.json`) y desplegar la API y el worker. Al crear una configuración desde cero, `infra/scripts/configure-app.py --edf-lgbm` incluye ese indicador. Verificar la paridad con `scripts/smoke_cloud.py --edf-model lightgbm --edf noche.edf --edf-expected hipnograma.csv` y las opciones habituales de entorno. Publicar después el valor `edfLgbmEnabled` de `public_config` en `MAIA_PUBLIC_CONFIG` y recompilar el frontend con Vercel. La opción está desactivada por defecto. Para retirarla, desactivar ambos indicadores.
+La release histórica de LightGBM desde EDF utiliza el modelo tabular ya publicado. Para habilitarlo en un entorno, establecer `edf_lgbm_enabled=true` en la configuración AWS aprobada (`delivery/config/aws.json`) y desplegar la API y el worker. Al crear una configuración desde cero, `infra/scripts/configure-app.py --edf-lgbm` incluye ese indicador. Verificar la paridad con `scripts/smoke_cloud.py --edf-model lightgbm --edf noche.edf --edf-expected hipnograma.csv` y las opciones habituales de entorno. Publicar después el valor `edfLgbmEnabled` de `public_config` en `MAIA_PUBLIC_CONFIG` y recompilar el frontend con Vercel. La opción está desactivada por defecto. Para retirarla, desactivar ambos indicadores.
 
 Definir `TF_VAR_project_name` y `TF_VAR_team_id` con el proyecto y equipo Vercel. La primera aplicación crea el proyecto para fijar el origen canónico. En una cuenta normal Terraform crea los roles por componente. En el laboratorio, proporcionar `--existing-role-arn` para la API y `--instance-profile` y `--job-role` para entrenamiento con los roles preexistentes.
 
