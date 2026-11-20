@@ -59,7 +59,7 @@ class TemporalConv(nn.Module):
             for _ in self.dilations
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def sequence(self, x: torch.Tensor) -> torch.Tensor:
         # A shared linear map over three offset taps is a dilated convolution.
         # Keeping [batch, time, channels] also supports single-epoch inputs on Metal.
         length = x.shape[1]
@@ -73,7 +73,10 @@ class TemporalConv(nn.Module):
                 dim=-1,
             )
             x = x + block(taps)
-        return x[:, length // 2]
+        return x
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.sequence(x)[:, x.shape[1] // 2]
 
 
 class SequenceHead(nn.Module):

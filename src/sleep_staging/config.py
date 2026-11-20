@@ -8,6 +8,8 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from sleep_staging.sensor_profiles import channel_profiles as channel_profiles
+
 CHANNELS = {"eeg_fpz_cz", "eeg_pz_oz", "eog", "emg"}
 CLASSES = {
     "task_5": ["W", "N1", "N2", "N3", "REM"],
@@ -22,15 +24,6 @@ def project_root() -> Path:
         if (directory / "pyproject.toml").exists():
             return directory
     raise ValueError("Ejecuta desde el proyecto o define SLEEP_STAGING_ROOT.")
-
-
-def channel_profiles() -> dict[str, list[str]]:
-    profiles = {}
-    for eeg in [["eeg_fpz_cz"], ["eeg_pz_oz"], ["eeg_fpz_cz", "eeg_pz_oz"]]:
-        for extra in [[], ["eog"], ["emg"], ["eog", "emg"]]:
-            channels = eeg + extra
-            profiles["+".join(channels)] = channels
-    return profiles
 
 
 class LocalConfig(BaseModel):
