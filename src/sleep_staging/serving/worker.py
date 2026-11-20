@@ -14,6 +14,7 @@ import boto3
 import joblib
 
 from sleep_staging.provenance import hash_file
+from sleep_staging.sensor_profiles import MAX_EDF_BYTES
 from sleep_staging.serving.contract import MAX_BYTES, predictions, read_night
 
 
@@ -45,12 +46,33 @@ def load_release() -> tuple[dict, Any]:
     return manifest, model
 
 
+@lru_cache(maxsize=1)
+def load_edf_release() -> tuple[Any, dict]:
+    import torch
+
+    from sleep_staging.fullnight.training import load_model
+
+    s3 = boto3.client("s3")
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "model.pt"
+        s3.download_file(
+            os.environ["RELEASE_BUCKET"],
+            os.environ["EDF_MODEL_KEY"],
+            str(path),
+            ExtraArgs={"VersionId": os.environ["EDF_MODEL_VERSION"]},
+        )
+        if hash_file(path) != os.environ["EDF_MODEL_SHA256"]:
+            raise RuntimeError("EDF model integrity failure")
+        torch.set_num_threads(2)
+        return load_model(path, torch.device("cpu"))
+
+
 def handler(event: dict, context: Any) -> dict:
     import pyarrow as pa
 
     start = time.monotonic()
     s3 = boto3.client("s3")
-    manifest, model = load_release()
+    edf = event.get("format") == "edf"
     jobs = os.environ["JOBS_BUCKET"]
     prefix = f"users/{event['owner']}/results/{event['job']}"
     bucket = os.environ["RELEASE_BUCKET"] if event["example"] else jobs
@@ -58,9 +80,9 @@ def handler(event: dict, context: Any) -> dict:
         Bucket=bucket, Key=event["input_key"], VersionId=event["input_version"]
     )
     with closing(obj["Body"]) as stream, tempfile.TemporaryDirectory() as folder:
-        if obj["ContentLength"] > MAX_BYTES:
+        if obj["ContentLength"] > (MAX_EDF_BYTES if edf else MAX_BYTES):
             return {"state": "failed", "reason": "Archivo demasiado grande."}
-        path = Path(folder) / "input.parquet"
+        path = Path(folder) / ("input.edf" if edf else "input.parquet")
         with path.open("wb") as f:
             for chunk in stream.iter_chunks(65536):
                 f.write(chunk)
@@ -69,21 +91,46 @@ def handler(event: dict, context: Any) -> dict:
                 "state": "failed",
                 "reason": "El archivo no coincide con su checksum.",
             }
-        try:
-            frame = read_night(path, manifest)
-        except (ValueError, pa.ArrowException, OverflowError):
-            return {
-                "state": "failed",
-                "reason": "El archivo no cumple el contrato de una noche preparada.",
+        if edf:
+            import torch
+
+            from sleep_staging.serving.edf import edf_summary, predict_edf
+
+            net, meta = load_edf_release()
+            try:
+                result, profile = predict_edf(
+                    path,
+                    net,
+                    event.get("profile", "auto"),
+                    event["job"],
+                    torch.device("cpu"),
+                )
+            except (ValueError, EOFError, OverflowError, OSError):
+                return {
+                    "state": "failed",
+                    "reason": "EDF o perfil de canales incompatible.",
+                }
+            details = edf_summary(result, profile, meta)
+        else:
+            manifest, model = load_release()
+            try:
+                frame = read_night(path, manifest)
+            except (ValueError, pa.ArrowException, OverflowError):
+                return {
+                    "state": "failed",
+                    "reason": "El archivo no cumple el contrato de una noche preparada.",
+                }
+            result = predictions(model, manifest, frame)
+            details = {
+                "model_version": manifest["release_id"],
+                "preprocessing_id": manifest["preprocessing_id"],
+                "rows": len(frame),
+                "eligible": int(frame.eligible.sum()),
             }
-        result = predictions(model, manifest, frame)
         summary = {
+            **details,
             "job_id": event["job"],
             "inference_seconds": round(time.monotonic() - start, 3),
-            "model_version": manifest["release_id"],
-            "preprocessing_id": manifest["preprocessing_id"],
-            "rows": len(frame),
-            "eligible": int(frame.eligible.sum()),
             "input_sha256": event["sha256"],
         }
         payload = {

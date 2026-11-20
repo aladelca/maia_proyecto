@@ -14,9 +14,15 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 from flask import Blueprint, Flask, g, jsonify, request
 from werkzeug.datastructures import Headers
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, ServiceUnavailable
 
-MAX_BYTES = 32 * 1024**2
+from sleep_staging.sensor_profiles import (
+    MAX_EDF_BYTES,
+    MAX_PARQUET_BYTES,
+    validate_edf_profile,
+)
+
+MAX_BYTES = MAX_PARQUET_BYTES
 routes = Blueprint("v1", __name__, url_prefix="/v1")
 
 
@@ -58,18 +64,33 @@ def obj_head(key: str, version: str, bucket: str) -> dict:
     return client("s3").head_object(Bucket=bucket, Key=key, VersionId=version)
 
 
+def upload_contract(body: dict) -> tuple[str, int]:
+    fmt = body.get("format", "parquet")
+    if fmt == "edf":
+        if os.getenv("EDF_ENABLED") != "1":
+            raise ServiceUnavailable(
+                "El modelo EDF aún no está publicado en este entorno."
+            )
+        return fmt, MAX_EDF_BYTES
+    if fmt == "parquet":
+        return fmt, MAX_BYTES
+    raise ValueError("Formato de entrada desconocido.")
+
+
 @routes.post("/uploads")
 def uploads() -> Any:
     b = request.get_json()
+    if not isinstance(b, dict):
+        raise ValueError("Solicitud inválida.")
+    fmt, limit = upload_contract(b)
     if (
-        not isinstance(b, dict)
-        or type(b.get("size")) is not int
-        or not 0 < b["size"] <= MAX_BYTES
+        type(b.get("size")) is not int
+        or not 0 < b["size"] <= limit
         or not re.fullmatch("[a-f0-9]{64}", str(b.get("sha256", "")))
     ):
         raise ValueError("Tamaño o SHA-256 inválido.")
     key_id = uuid.uuid4().hex
-    key = f"users/{g.owner}/uploads/{key_id}.parquet"
+    key = f"users/{g.owner}/uploads/{key_id}.{fmt}"
     meta = {
         "x-amz-meta-sha256": b["sha256"],
         "Content-Type": "application/octet-stream",
@@ -108,11 +129,15 @@ def start() -> Any:
             os.environ[k] for k in ["EXAMPLE_KEY", "EXAMPLE_VERSION", "EXAMPLE_SHA256"]
         )
     else:
+        fmt, limit = upload_contract(b)
+        profile = (
+            validate_edf_profile(b.get("profile", "auto")) if fmt == "edf" else None
+        )
         upload = uid(b.get("upload_id", ""))
-        key = f"users/{g.owner}/uploads/{upload}.parquet"
+        key = f"users/{g.owner}/uploads/{upload}.{fmt}"
         version = b.get("version_id", "")
         obj = obj_head(key, version, os.environ["JOBS_BUCKET"])
-        if not 0 < obj["ContentLength"] <= MAX_BYTES:
+        if not 0 < obj["ContentLength"] <= limit:
             raise ValueError("Tamaño de archivo inválido.")
         sha = obj["Metadata"].get("sha256", "")
         if not re.fullmatch("[a-f0-9]{64}", sha):
@@ -125,6 +150,8 @@ def start() -> Any:
         "input_version": version,
         "sha256": sha,
     }
+    if not example and fmt == "edf":
+        params.update(format=fmt, profile=profile)
     payload = json.dumps(params, sort_keys=True, separators=(",", ":"))
     states = client("stepfunctions")
     try:
@@ -192,7 +219,9 @@ def create_app() -> Flask:
 
     @app.errorhandler(HTTPException)
     def http_error(exc: HTTPException) -> Any:
-        return jsonify(error=exc.name), exc.code
+        return jsonify(
+            error=exc.description if isinstance(exc, ServiceUnavailable) else exc.name
+        ), exc.code
 
     @app.errorhandler(ClientError)
     def aws_error(exc: ClientError) -> Any:

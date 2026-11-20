@@ -71,12 +71,12 @@ resource "aws_lambda_function" "app" {
   architectures = ["x86_64"]
   publish       = true
   memory_size   = each.key == "worker" ? 3072 : 512
-  timeout       = each.key == "worker" ? 120 : 20
+  timeout       = each.key == "worker" ? 300 : 20
   environment {
     variables = merge({ JOBS_BUCKET = local.bucket }, each.key == "api" ? {
-      MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256
+      MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256, EDF_ENABLED = try(local.obj.edf_model.key != "", false) ? "1" : "0"
       } : {
-      RELEASE_BUCKET = local.release, MANIFEST_KEY = local.obj.manifest.key, MANIFEST_VERSION = local.obj.manifest.version, MANIFEST_SHA256 = local.obj.manifest.sha256, OMP_NUM_THREADS = "2", OPENBLAS_NUM_THREADS = "1"
+      RELEASE_BUCKET = local.release, MANIFEST_KEY = local.obj.manifest.key, MANIFEST_VERSION = local.obj.manifest.version, MANIFEST_SHA256 = local.obj.manifest.sha256, OMP_NUM_THREADS = "2", OPENBLAS_NUM_THREADS = "1", EDF_MODEL_KEY = try(local.obj.edf_model.key, ""), EDF_MODEL_VERSION = try(local.obj.edf_model.version, ""), EDF_MODEL_SHA256 = try(local.obj.edf_model.sha256, "")
     })
   }
   depends_on = [aws_cloudwatch_log_group.app, aws_iam_role_policy_attachment.logging]
