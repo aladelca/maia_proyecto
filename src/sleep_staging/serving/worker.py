@@ -5,7 +5,7 @@ import json
 import os
 import tempfile
 import time
-from contextlib import closing
+from contextlib import closing, nullcontext
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,7 @@ import joblib
 from sleep_staging.provenance import hash_file
 from sleep_staging.sensor_profiles import MAX_EDF_BYTES, validate_lgbm_profile
 from sleep_staging.serving.contract import LABELS, MAX_BYTES, predictions, read_night
+from sleep_staging.stack_release import EXAMPLE_SHA256, MODEL, VERSION
 
 
 @lru_cache(maxsize=1)
@@ -75,23 +76,62 @@ def handler(event: dict, context: Any) -> dict:
     edf = event.get("format") == "edf"
     jobs = os.environ["JOBS_BUCKET"]
     prefix = f"users/{event['owner']}/results/{event['job']}"
-    bucket = os.environ["RELEASE_BUCKET"] if event["example"] else jobs
-    obj = s3.get_object(
-        Bucket=bucket, Key=event["input_key"], VersionId=event["input_version"]
-    )
-    with closing(obj["Body"]) as stream, tempfile.TemporaryDirectory() as folder:
-        if obj["ContentLength"] > (MAX_EDF_BYTES if edf else MAX_BYTES):
-            return {"state": "failed", "reason": "Archivo demasiado grande."}
-        path = Path(folder) / ("input.edf" if edf else "input.parquet")
-        with path.open("wb") as f:
-            for chunk in stream.iter_chunks(65536):
-                f.write(chunk)
+
+    hybrid = event.get("model") == MODEL and edf
+    bundled = hybrid and event["example"]
+    if bundled and (event["input_key"], event["input_version"], event["sha256"]) != (
+        "bundled/example.edf",
+        VERSION,
+        EXAMPLE_SHA256,
+    ):
+        raise RuntimeError("Referencia de ejemplo incompatible.")
+    if not bundled:
+        bucket = os.environ["RELEASE_BUCKET"] if event["example"] else jobs
+        obj = s3.get_object(
+            Bucket=bucket, Key=event["input_key"], VersionId=event["input_version"]
+        )
+    with (
+        nullcontext(None) if bundled else closing(obj["Body"]) as stream,
+        tempfile.TemporaryDirectory() as folder,
+    ):
+        if bundled:
+            from sleep_staging.serving.stacked_edf import EXAMPLE_PATH
+
+            path = EXAMPLE_PATH
+        else:
+            assert stream is not None
+            if obj["ContentLength"] > (MAX_EDF_BYTES if edf else MAX_BYTES):
+                return {"state": "failed", "reason": "Archivo demasiado grande."}
+            path = Path(folder) / ("input.edf" if edf else "input.parquet")
+            with path.open("wb") as f:
+                for chunk in stream.iter_chunks(65536):
+                    f.write(chunk)
         if hash_file(path) != event["sha256"]:
             return {
                 "state": "failed",
                 "reason": "El archivo no coincide con su checksum.",
             }
-        if edf and event.get("model") == "lightgbm":
+        if hybrid:
+            from sleep_staging.serving.edf_lgbm import IncompatibleEDF
+            from sleep_staging.serving.stacked_edf import (
+                score,
+            )
+            from sleep_staging.serving.stacked_edf import (
+                summary as stack_summary,
+            )
+
+            try:
+                validate_lgbm_profile(event.get("profile", "auto"))
+                result = score(path, event["job"])
+            except IncompatibleEDF as exc:
+                return {"state": "failed", "reason": str(exc)}
+            except (ValueError, EOFError, OverflowError, OSError):
+                return {
+                    "state": "failed",
+                    "reason": "EDF incompatible con los cuatro canales del modelo.",
+                }
+            details = stack_summary(result)
+        elif edf and event.get("model") == "lightgbm":
             from sleep_staging.serving.edf_lgbm import (
                 IncompatibleEDF,
                 prepare_edf,

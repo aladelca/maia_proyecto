@@ -311,3 +311,62 @@ def test_lightgbm_edf_is_independent_and_part_of_job_identity(monkeypatch, publi
     assert (
         invoke("POST", root + "/uploads", subject, upload, headers)["statusCode"] == 503
     )
+
+
+def test_active_stack_accepts_only_edf_and_binds_published_example(monkeypatch):
+    from sleep_staging.stack_release import EXAMPLE_SHA256, MODEL, VERSION
+
+    monkeypatch.setenv("ACTIVE_EDF_MODEL", MODEL)
+    monkeypatch.setenv("MACHINE_ARN", "arn:aws:states:us-west-2:123:stateMachine:maia")
+    monkeypatch.setenv("JOBS_BUCKET", "jobs")
+    aws = Mock()
+    monkeypatch.setattr(api, "client", lambda _: aws)
+    aws.generate_presigned_post.return_value = {
+        "url": "https://example.org",
+        "fields": {},
+    }
+    aws.head_object.return_value = {
+        "ContentLength": 32,
+        "Metadata": {"sha256": "a" * 64},
+    }
+    http = api.app.test_client()
+    guest = {"X-Guest-Token": "a" * 64}
+    assert http.get("/public/v1/examples/default").json["model_version"] == VERSION
+    upload = {"size": 32, "sha256": "a" * 64}
+    for bad in [
+        {},
+        {"format": "parquet"},
+        {"format": "edf", "model": "fullnight"},
+        {"format": "edf", "model": "lightgbm"},
+        {"format": "edf", "profile": "eeg_fpz_cz"},
+    ]:
+        assert (
+            http.post(
+                "/public/v1/uploads", json={**upload, **bad}, headers=guest
+            ).status_code
+            == 400
+        )
+    aws.generate_presigned_post.assert_not_called()
+    signed = http.post(
+        "/public/v1/uploads",
+        json={**upload, "format": "edf", "model": MODEL},
+        headers=guest,
+    )
+    assert signed.status_code == 201
+    for body in [
+        {"example": "default", "model": MODEL},
+        {"format": "edf", "upload_id": signed.json["upload_id"], "version_id": "v1"},
+    ]:
+        response = http.post(
+            "/public/v1/predictions",
+            json=body,
+            headers={**guest, "Idempotency-Key": str(uuid4())},
+        )
+        assert response.status_code == 202
+        payload = json.loads(aws.start_execution.call_args.kwargs["input"])
+        assert payload["model"] == MODEL and payload["format"] == "edf"
+        if "example" in body:
+            assert (
+                payload["sha256"] == EXAMPLE_SHA256
+                and payload["input_version"] == VERSION
+            )

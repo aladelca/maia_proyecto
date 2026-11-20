@@ -1,0 +1,26 @@
+{
+  "lightgbm": {
+    "experiment_id": "3",
+    "experiment_name": "sleep-cassette-lgbm-bilstm-refinement-v1",
+    "parent": "bb7fa78abcfb41ab87c86ee89755ae87",
+    "arms": {
+      "lightgbm_release": "7e3746fc4c5746bdaa4a41a4ff889e82",
+      "fullnight_five": "e0444a9861e94ca9a9921363e9f3dc4f",
+      "stack_five": "a64415fc2bd649b39c6fd158994b0479",
+      "stack_five_movement": "03ab4703e4364448b0c0c8f49a0a8b44",
+      "fullnight_native": "6741f5643c5640f0aeb4999a75372637"
+    }
+  },
+  "fullnight": {
+    "experiment_id": "1",
+    "experiment_name": "ibio-fullnight",
+    "parent": "5ef260a86a0349e48a9ec6a956ec5348",
+    "arms": {
+      "lightgbm_release": "2361bd148a9e4b268dc7c68057bc3924",
+      "fullnight_five": "f62b236966da4317bf23b2e8334bb2d1",
+      "stack_five": "a466f9bc699549cc81e1cd872a091458",
+      "stack_five_movement": "a9a2644be03c4cebb4d6c6b24f534cc7",
+      "fullnight_native": "cf0477831f714972b7e2239023371c95"
+    }
+  }
+}

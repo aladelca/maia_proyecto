@@ -26,3 +26,10 @@
 !scripts/train_cloud.py
 !pyproject.toml
 !uv.lock
+
+!modelos/
+!modelos/stack_five/
+!modelos/stack_five/*.joblib
+!modelos/stack_five/*.pt
+!output/
+!output/demo-sueno-sintetico-10min.edf
