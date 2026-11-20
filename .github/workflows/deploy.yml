@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - src/sleep_staging/**
+      - modelos/stack_five/**
+      - output/demo-sueno-sintetico-10min.edf
       - services/**
       - containers/**
       - infra/aws/**
@@ -104,7 +106,7 @@ jobs:
         run: |
           backend=true
           if [ "$GITHUB_EVENT_NAME" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null &&
-            git diff --quiet "$BEFORE" "$GITHUB_SHA" -- src/sleep_staging services containers infra/aws \
+            git diff --quiet "$BEFORE" "$GITHUB_SHA" -- src/sleep_staging services containers modelos/stack_five output/demo-sueno-sintetico-10min.edf infra/aws \
               infra/scripts ci/check-plan.py ci/set-images.py pyproject.toml uv.lock .dockerignore; then
             backend=false
           fi
@@ -164,7 +166,7 @@ jobs:
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
         run: |
           uv run --locked --no-dev --extra cloud python scripts/smoke_cloud.py \
-            --config var/cloud/public-config.json | tee var/cloud/smoke.json
+            --config var/cloud/public-config.json --require-stack | tee var/cloud/smoke.json
           { echo "### Prueba de humo"; echo; echo '```json'; cat var/cloud/smoke.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       # La escritura condicional falla si alguien cambió la configuración durante el despliegue.

@@ -22,6 +22,7 @@ from sleep_staging.sensor_profiles import (
     validate_edf_profile,
     validate_lgbm_profile,
 )
+from sleep_staging.stack_release import EXAMPLE_SHA256, MODEL, VERSION
 
 MAX_BYTES = MAX_PARQUET_BYTES
 routes = Blueprint("v1", __name__, url_prefix="/v1")
@@ -66,6 +67,10 @@ def obj_head(key: str, version: str, bucket: str) -> dict:
 
 
 def upload_contract(body: dict) -> tuple[str, int, str | None]:
+    if os.getenv("ACTIVE_EDF_MODEL") == MODEL:
+        if body.get("format") != "edf" or body.get("model", MODEL) != MODEL:
+            raise ValueError("El modelo publicado requiere una polisomnografía EDF.")
+        return "edf", MAX_EDF_BYTES, validate_lgbm_profile(body.get("profile", "auto"))
     fmt = body.get("format", "parquet")
     if fmt == "parquet":
         if body.get("model", "lightgbm") != "lightgbm" or "profile" in body:
@@ -125,6 +130,14 @@ def uploads() -> Any:
 
 @routes.get("/examples/default")
 def example_info() -> Any:
+    if os.getenv("ACTIVE_EDF_MODEL") == MODEL:
+        return jsonify(
+            example="default",
+            model=MODEL,
+            model_version=VERSION,
+            format="edf",
+            description="Polisomnografía sintética de 10 minutos con cuatro canales.",
+        )
     return jsonify(
         example="default", description="Noche pública Sleep Cassette de desarrollo."
     )
@@ -136,8 +149,14 @@ def start() -> Any:
     b = request.get_json()
     if not isinstance(b, dict):
         raise ValueError("Solicitud inválida.")
-    example = b == {"example": "default"}
-    if example:
+    hybrid = os.getenv("ACTIVE_EDF_MODEL") == MODEL
+    example = b == {"example": "default"} or (
+        hybrid and b == {"example": "default", "model": MODEL}
+    )
+    if example and hybrid:
+        key, version, sha = "bundled/example.edf", VERSION, EXAMPLE_SHA256
+        fmt, _, profile = upload_contract({"format": "edf", "model": MODEL})
+    elif example:
         key, version, sha = (
             os.environ[k] for k in ["EXAMPLE_KEY", "EXAMPLE_VERSION", "EXAMPLE_SHA256"]
         )
@@ -160,7 +179,9 @@ def start() -> Any:
         "input_version": version,
         "sha256": sha,
     }
-    if not example and fmt == "edf":
+    if hybrid:
+        params.update(format="edf", model=MODEL, profile=profile)
+    elif not example and fmt == "edf":
         params.update(format=fmt, profile=profile)
         if b.get("model") == "lightgbm":
             params["model"] = "lightgbm"

@@ -15,6 +15,7 @@ import pandas as pd
 import requests
 
 from sleep_staging.serving.contract import LABELS
+from sleep_staging.stack_release import MODEL, RUN_ID, VERSION
 
 
 def upload(
@@ -96,7 +97,9 @@ def verify_edf(
     assert result.index.equals(expected.index)
     assert [c for c in result if c.startswith("prob_")] == cols
     assert result.eligible.equals(expected.eligible)
-    if model == "lightgbm":
+    if model == MODEL:
+        assert data["model_version"] == VERSION and data["mlflow_run_id"] == RUN_ID
+    if model in ("lightgbm", MODEL):
         assert data["classes"] == LABELS and data["window"] == "full"
     pd.testing.assert_series_equal(
         result.prediction, expected.prediction, check_dtype=False
@@ -146,12 +149,27 @@ def verify(config: dict, bundle: Path, *, guest: bool = False) -> dict:
             raise RuntimeError("ID token accepted")
         client.headers.update({"Authorization": "Bearer " + auth["AccessToken"]})
     client.get(url + "examples/default", timeout=20).raise_for_status()
-    example = (bundle / "example.parquet").read_bytes()
-    expected = pd.read_parquet(bundle / "expected.parquet").set_index("epoch_id")
+    live = client.get(url + "examples/default", timeout=20)
+    live.raise_for_status()
+    hybrid = live.json().get("model") == MODEL
+    if hybrid:
+        example = Path("output/demo-sueno-sintetico-10min.edf").read_bytes()
+        expected = pd.read_csv("modelos/stack_five/example-expected.csv").set_index(
+            "onset_s"
+        )
+        uploaded = {
+            **upload(client, url, config["origin"], example, "edf", MODEL),
+            "format": "edf",
+            "model": MODEL,
+        }
+    else:
+        example = (bundle / "example.parquet").read_bytes()
+        expected = pd.read_parquet(bundle / "expected.parquet").set_index("epoch_id")
+        uploaded = upload(client, url, config["origin"], example, "parquet")
     report = {}
     for name, body in [
         ("example", {"example": "default"}),
-        ("upload", upload(client, url, config["origin"], example, "parquet")),
+        ("upload", uploaded),
     ]:
         started = time.monotonic()
         headers = {"Idempotency-Key": str(uuid.uuid4())}
@@ -170,9 +188,13 @@ def verify(config: dict, bundle: Path, *, guest: bool = False) -> dict:
             assert other.status_code == 404
 
         data, result = wait(client, url, job)
-        result = result.set_index("epoch_id")
+        if hybrid:
+            assert data["model_version"] == VERSION and data["mlflow_run_id"] == RUN_ID
+            assert data["classes"] == LABELS
+        result = result.set_index("onset_s" if hybrid else "epoch_id")
         cols = ["prob_" + c for c in LABELS]
         assert result.index.equals(expected.index)
+        assert result.eligible.equals(expected.eligible)
         pd.testing.assert_series_equal(
             result.prediction, expected.prediction, check_dtype=False
         )
@@ -227,14 +249,17 @@ if __name__ == "__main__":
         help="CSV from the selected model’s local runner for the same EDF",
     )
     parser.add_argument(
-        "--edf-model", choices=["fullnight", "lightgbm"], default="fullnight"
+        "--edf-model", choices=["fullnight", "lightgbm", MODEL], default="fullnight"
     )
     parser.add_argument("--profile", default="auto", help="EDF channel profile")
+    parser.add_argument("--require-stack", action="store_true")
     args = parser.parse_args()
     if bool(args.edf) != bool(args.edf_expected):
         parser.error("--edf requires --edf-expected and vice versa")
     config = json.loads(args.config.read_text())
     report = verify(config, args.bundle, guest=args.guest)
+    if args.require_stack and any(row["release"] != VERSION for row in report.values()):
+        raise RuntimeError("La release híbrida solicitada no está activa.")
     if args.edf:
         report["edf"] = verify_edf(
             config, args.edf, args.edf_expected, args.profile, args.edf_model
