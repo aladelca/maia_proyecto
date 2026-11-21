@@ -23,11 +23,10 @@ del híbrido. Las métricas y los enlaces provienen del contenido de Adrián, no
 demo. Cambiar de pestaña no reinicia el trabajo, el archivo ni la selección del
 gráfico. Se admiten flechas, Inicio/Fin y enlaces `#modelo` / `#experimentos`.
 
-Esta integración adapta el frontend público en la rama UX; no fusiona `main`
-ni incorpora cambios del backend o de despliegue. Las aplicaciones Python de
-inferencia local añadidas en upstream (`local` / `local-stack`) no se integran en
-esta vista previa Vite. Antes de publicar se debe conciliar la rama con `main`
-y verificar el flujo real de EDF contra la versión desplegada.
+Esta integración conserva los modos de inferencia Python de `main` (`local` y
+`local-stack`) en `LocalLab.tsx`, sin cambiar sus endpoints ni los scripts de
+publicación. La interfaz pública incorpora el diseño de esta rama. El merge
+integra `main` hasta `da19b99`; el diff del PR se limita al frontend.
 
 ## Verificación
 

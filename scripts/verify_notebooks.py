@@ -8,7 +8,7 @@ from sleep_staging.config import project_root
 
 def main() -> None:
     root = project_root()
-    for path in sorted((root / "notebook").glob("*.ipynb")):
+    for path in sorted((root / "notebooks").glob("*.ipynb")):
         notebook = nbformat.read(path, as_version=4)
         NotebookClient(
             notebook,

@@ -31,10 +31,9 @@ resource "aws_iam_role_policy" "codebuild" {
   role     = aws_iam_role.codebuild[each.key].id
   policy = jsonencode({ Version = "2012-10-17", Statement = concat(local.common, jsondecode(each.key == "Build" ? jsonencode(local.build) : jsonencode(concat([
     { Effect = "Allow", Action = ["ecr:GetRepositoryPolicy", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"], Resource = local.ecr },
-    { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.vercel[0].arn },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "arn:aws:s3:::${var.research_bucket}/delivery/config/*" },
-    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = [for k in ["aws", "training", "vercel"] : "arn:aws:s3:::${local.state}/${k}/terraform.tfstate"] },
-    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = [for k in ["aws", "training", "vercel"] : "arn:aws:s3:::${local.state}/${k}/terraform.tfstate.tflock"] },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = [for k in ["aws", "training"] : "arn:aws:s3:::${local.state}/${k}/terraform.tfstate"] },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = [for k in ["aws", "training"] : "arn:aws:s3:::${local.state}/${k}/terraform.tfstate.tflock"] },
     { Effect = "Allow", Action = ["lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:PublishVersion", "lambda:Get*", "lambda:List*"], Resource = "arn:aws:lambda:${var.region}:${local.account}:function:maia-sleep-dev-*" },
     { Effect = "Allow", Action = ["states:UpdateStateMachine", "states:PublishStateMachineVersion", "states:UpdateStateMachineAlias", "states:Describe*", "states:List*"], Resource = "arn:aws:states:${var.region}:${local.account}:stateMachine:maia-sleep-dev*" },
     { Effect = "Allow", Action = ["batch:RegisterJobDefinition", "batch:DeregisterJobDefinition", "batch:TagResource"], Resource = ["arn:aws:batch:${var.region}:${local.account}:job-definition/maia-sleep-dev-training*"] },

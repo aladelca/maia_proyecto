@@ -2,5 +2,10 @@ FROM public.ecr.aws/lambda/python:3.12
 RUN dnf install -y libgomp && dnf clean all
 COPY containers/science.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 && \
+    pip install --no-cache-dir mne==1.13.2 pydantic==2.14.1 PyYAML==6.0.3
 COPY src/sleep_staging/ ${LAMBDA_TASK_ROOT}/sleep_staging/
+ENV STACK_MODEL_DIR=/var/task/stack_five STACK_EXAMPLE_EDF=/var/task/stack_five/example.edf
+COPY modelos/stack_five/stack_five.joblib modelos/stack_five/six_direct.pt ${STACK_MODEL_DIR}/
+COPY output/demo-sueno-sintetico-10min.edf ${STACK_MODEL_DIR}/example.edf
 CMD ["sleep_staging.serving.worker.handler"]

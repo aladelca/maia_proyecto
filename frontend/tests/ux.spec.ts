@@ -241,3 +241,15 @@ test("new analysis clears the result, selected file and saved job across reload"
   await expect(page.getByRole("img", { name: /Hipnograma/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Salir del modo demo" })).toHaveCount(0);
 });
+for (const mode of ["local", "local-stack"]) {
+  test(`upstream ${mode} configuration works without an API field`, async ({ page }) => {
+    await page.route("**/config.json", r => r.fulfill({ json: { mode } }));
+    await page.route("**/v1/edf", r => r.fulfill({ json: { ...result, classes: ["W", "N1", "N2", "N3", "REM", "M"], profile: "eeg_pz_oz" } }));
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Analizar un registro EDF" })).toBeVisible();
+    await page.locator("#night").setInputFiles({ name: "test.edf", mimeType: "application/octet-stream", buffer: Buffer.from("fixture") });
+    await page.getByRole("button", { name: "Generar predicción" }).click();
+    await expect(page.getByRole("img", { name: /Hipnograma/ })).toBeVisible();
+    await expect(page.getByText("Movimiento", { exact: true })).toBeVisible();
+  });
+}

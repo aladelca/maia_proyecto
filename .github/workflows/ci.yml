@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  python:
+    name: Python · formato, lint, tipos y tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Instalar dependencias de uv.lock
+        run: uv sync --locked --group dev --extra cloud --extra boosting
+      - name: Instalar torch CPU con la versión de uv.lock
+        # El wheel de PyPI para Linux arrastra CUDA (~3 GB). Los tests de MPS se omiten fuera de macOS.
+        run: |
+          version=$(uv run --no-sync python -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"] if p["name"] == "torch"))')
+          uv pip install "torch==$version" --torch-backend cpu
+      - name: Formato, lint, tipos y pines de contenedores
+        run: make check
+      - name: Tests
+        run: make test
+
+  terraform:
+    name: Terraform · formato y validación
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugins
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive infra
+      - name: Validar cada stack sin backend
+        run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          for main in infra/*/main.tf; do
+            stack=$(dirname "$main")
+            echo "::group::$stack"
+            terraform -chdir="$stack" init -backend=false -input=false
+            terraform -chdir="$stack" validate
+            echo "::endgroup::"
+          done
+
+  frontend:
+    name: Frontend · tipos y build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Compilar como Vercel y comprobar la configuración publicada
+        env:
+          MAIA_PUBLIC_CONFIG: '{"api":"https://api.example.test","edfEnabled":false}'
+        run: |
+          npm run build:vercel
+          node -e 'require("node:assert/strict").deepEqual(require("./dist/config.json"), JSON.parse(process.env.MAIA_PUBLIC_CONFIG))'
+
+  containers:
+    name: Contenedor · ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: api
+            smoke: python3 -c "import app"
+          - component: worker
+            smoke: python3 -c "from sleep_staging.serving.worker import handler; from sleep_staging.serving.edf import predict_edf"
+          - component: training
+            smoke: python3 scripts/train_cloud.py --help
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: containers/Dockerfile.${{ matrix.component }}
+          platforms: linux/amd64
+          provenance: false
+          load: true
+          tags: maia-${{ matrix.component }}:ci
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+      - name: Importar el código dentro de la imagen
+        # Detecta dependencias que faltan en containers/science.txt antes de llegar a Lambda o EC2.
+        env:
+          COMPONENT: ${{ matrix.component }}
+          SMOKE: ${{ matrix.smoke }}
+        run: docker run --rm --entrypoint sh "maia-$COMPONENT:ci" -c "$SMOKE"

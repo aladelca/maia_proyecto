@@ -70,7 +70,7 @@ Se completaron 78 entrenamientos LightGBM en CPU y 42 BiLSTM en MPS. El reinicio
 | LightGBM | `6e742213d8174e32858dc44750640171` | `99f262e3d8de463a841791d7831c0f91` |
 | BiLSTM | `e390056ca9f548ab968fd9a4cf64b2ba` | `100572d188ec42dca85a8fdf5af01278` |
 
-La auditoría verificó separación por sujeto, cobertura de las 152.052 predicciones por familia, métricas externas, escaladores, pesos, hashes y recarga de los candidatos. El alias histórico conserva la versión 1 durante la evaluación de desarrollo. El notebook incluye resultados por sujeto, curvas y selección por fold. [Notebook ejecutado](../notebook/06_lgbm_bilstm_tuning.ipynb)
+La auditoría verificó separación por sujeto, cobertura de las 152.052 predicciones por familia, métricas externas, escaladores, pesos, hashes y recarga de los candidatos. El alias histórico conserva la versión 1 durante la evaluación de desarrollo. El notebook incluye resultados por sujeto, curvas y selección por fold. [Notebook ejecutado](../notebooks/06_lgbm_bilstm_tuning.ipynb)
 
 Con las dos campañas anteriores disponibles en `var/research/`, ejecutar desde la raíz:
 

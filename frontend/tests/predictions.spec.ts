@@ -1,11 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { resolve } from "node:path";
 
 test("acceso público, recarga, aislamiento entre visitantes y carga de una noche", async ({
   page,
   browser,
 }) => {
   if (!process.env.DEMO_ORIGIN) throw Error("Configura DEMO_ORIGIN.");
-  if (!process.env.EXAMPLE_EDF) throw Error("Configura EXAMPLE_EDF con una polisomnografía compatible.");
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "Analizar una noche" }),
@@ -19,6 +19,9 @@ test("acceso público, recarga, aislamiento entre visitantes y carga de una noch
   await expect(page.getByRole("img", { name: /Hipnograma/ })).toBeVisible({
     timeout: 90000,
   });
+  await expect(
+    page.getByText("stack-five-a64415fc2bd6", { exact: true }),
+  ).toBeVisible();
   const first = page.url();
   const guest = await browser.newContext();
   try {
@@ -34,14 +37,15 @@ test("acceso público, recarga, aislamiento entre visitantes y carga de una noch
   await page
     .locator("#night")
     .setInputFiles(
-      process.env.EXAMPLE_EDF,
+      process.env.EXAMPLE_EDF ??
+        resolve("../output/demo-sueno-sintetico-10min.edf"),
     );
   await page.getByRole("button", { name: "Generar predicción" }).click();
   await expect(page).not.toHaveURL(first);
   await expect(page.getByRole("img", { name: /Hipnograma/ })).toBeVisible({
     timeout: 60000,
   });
-  await expect(page.getByText("stack-five-a64415fc2bd6", { exact: true })).toBeVisible();
+  await expect(page.getByText(/20 épocas analizadas/)).toBeVisible();
   const downloadEvent = page.waitForEvent("download");
   await page.getByRole("button", { name: /Descargar probabilidades/ }).click();
   expect((await downloadEvent).suggestedFilename()).toMatch(/\.csv$/);

@@ -6,11 +6,12 @@ import { Hypnogram, stages, sleepNames, stageOf, type Epoch } from "./Hypnogram"
 import { demoResult } from "./demo";
 import { Project } from "./project";
 import { Team } from "./Team";
+import { LocalLab } from "./LocalLab";
 import { AnalysisProgress } from "./AnalysisProgress";
 import { SleepSummary } from "./SleepSummary";
 const releaseVersion = "stack-five-a64415fc2bd6";
 
-type Config = { api: string; resultProxy?: string; uploadProxy?: string; storageHost?: string };
+type Config = { api: string; mode?: string; resultProxy?: string; uploadProxy?: string; storageHost?: string };
 type Result = {
   model_version: string;
   profile?: string;
@@ -407,6 +408,6 @@ root.render(<main><p role="status">Cargando el laboratorio…</p></main>);
   const response = await request("/config.json", { cache: "no-store" }, 10000);
   if (!response.ok) throw Error();
   const cfg: Config = await response.json();
-  if (typeof cfg.api !== "string") throw Error("Configuración inválida");
-  root.render(<App cfg={cfg} />);
+  if (cfg.mode !== "local" && cfg.mode !== "local-stack" && typeof cfg.api !== "string") throw Error("Configuración inválida");
+  root.render(cfg.mode === "local-stack" ? <LocalLab stack /> : cfg.mode === "local" ? <LocalLab /> : <App cfg={cfg} />);
 })().catch(() => root.render(<App cfg={null} />));

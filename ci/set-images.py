@@ -1,9 +1,12 @@
 """Only update built image references in the approved deployment settings."""
 
 import json
+import sys
 from pathlib import Path
 
-for stack, names in {"training": ["training"], "aws": ["api", "worker"]}.items():
+components = {"training": ["training"], "aws": ["api", "worker"]}
+for stack in sys.argv[1:] or components:
+    names = components[stack]
     path = Path("infra") / stack / "deploy.auto.tfvars.json"
     settings = json.loads(path.read_text())
     images = {

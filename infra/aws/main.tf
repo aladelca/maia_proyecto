@@ -4,6 +4,10 @@ terraform {
   required_providers { aws = { source = "hashicorp/aws", version = "~> 6.0" } }
 }
 variable "region" { default = "us-west-2" }
+variable "edf_lgbm_enabled" {
+  type    = bool
+  default = false
+}
 variable "live_version_arn" { default = null }
 variable "origin" { type = string }
 variable "images" { type = map(string) }
@@ -16,6 +20,7 @@ locals {
   bucket      = var.inputs.buckets.jobs
   release     = var.inputs.buckets.releases
   obj         = var.inputs.objects
+  edf_enabled = try(local.obj.edf_model.key != "", false)
   machine_arn = "arn:aws:states:${var.region}:${data.aws_caller_identity.current.account_id}:stateMachine:${local.name}"
   components  = toset(["api", "worker", "states"])
   roles       = { for c in local.components : c => (var.existing_role_arn != "" ? var.existing_role_arn : aws_iam_role.component[c].arn) }
@@ -30,7 +35,9 @@ locals {
     { Effect = "Allow", Action = ["s3:GetObjectVersion", "s3:PutObject"], Resource = "arn:aws:s3:::${local.bucket}/users/*/uploads/*" },
     { Effect = "Allow", Action = ["s3:GetObject"], Resource = "arn:aws:s3:::${local.bucket}/users/*/results/*" },
     { Effect = "Allow", Action = ["states:StartExecution"], Resource = "${local.machine_arn}:live" },
-    { Effect = "Allow", Action = ["states:DescribeExecution"], Resource = "${replace(local.machine_arn, ":stateMachine:", ":execution:")}:*" }
+    { Effect = "Allow", Action = ["states:DescribeExecution"], Resource = "${replace(local.machine_arn, ":stateMachine:", ":execution:")}:*" },
+    { Effect = "Allow", Action = ["s3:GetBucketVersioning"], Resource = "arn:aws:s3:::${local.bucket}" },
+    { Effect = "Allow", Action = ["states:DescribeStateMachineAlias"], Resource = "${local.machine_arn}:live" }
   ]
   worker_policy = [
     { Effect = "Allow", Action = ["s3:GetObjectVersion"], Resource = ["arn:aws:s3:::${local.release}/releases/*", "arn:aws:s3:::${local.bucket}/users/*/uploads/*"] },
@@ -71,12 +78,12 @@ resource "aws_lambda_function" "app" {
   architectures = ["x86_64"]
   publish       = true
   memory_size   = each.key == "worker" ? 3072 : 512
-  timeout       = each.key == "worker" ? 120 : 20
+  timeout       = each.key == "worker" ? 300 : 20
   environment {
     variables = merge({ JOBS_BUCKET = local.bucket }, each.key == "api" ? {
-      MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256
+      API_VERSION = try(substr(split("@sha256:", var.images["api"])[1], 0, 12), "unknown"), MACHINE_ARN = local.machine_arn, EXAMPLE_KEY = local.obj["example.parquet"].key, EXAMPLE_VERSION = local.obj["example.parquet"].version, EXAMPLE_SHA256 = local.obj["example.parquet"].sha256, EDF_ENABLED = local.edf_enabled ? "1" : "0", EDF_LGBM_ENABLED = var.edf_lgbm_enabled ? "1" : "0"
       } : {
-      RELEASE_BUCKET = local.release, MANIFEST_KEY = local.obj.manifest.key, MANIFEST_VERSION = local.obj.manifest.version, MANIFEST_SHA256 = local.obj.manifest.sha256, OMP_NUM_THREADS = "2", OPENBLAS_NUM_THREADS = "1"
+      RELEASE_BUCKET = local.release, MANIFEST_KEY = local.obj.manifest.key, MANIFEST_VERSION = local.obj.manifest.version, MANIFEST_SHA256 = local.obj.manifest.sha256, OMP_NUM_THREADS = "2", OPENBLAS_NUM_THREADS = "1", EDF_MODEL_KEY = try(local.obj.edf_model.key, ""), EDF_MODEL_VERSION = try(local.obj.edf_model.version, ""), EDF_MODEL_SHA256 = try(local.obj.edf_model.sha256, "")
     })
   }
   depends_on = [aws_cloudwatch_log_group.app, aws_iam_role_policy_attachment.logging]
@@ -162,6 +169,13 @@ resource "aws_apigatewayv2_route" "guest" {
   target             = "integrations/${aws_apigatewayv2_integration.api.id}"
   authorization_type = "NONE"
 }
+resource "aws_apigatewayv2_route" "service" {
+  for_each           = toset(["GET /health", "GET /health/ready", "GET /openapi.json", "GET /docs"])
+  api_id             = aws_apigatewayv2_api.api.id
+  route_key          = each.key
+  target             = "integrations/${aws_apigatewayv2_integration.api.id}"
+  authorization_type = "NONE"
+}
 resource "aws_apigatewayv2_stage" "live" {
   api_id      = aws_apigatewayv2_api.api.id
   name        = "$default"
@@ -188,7 +202,7 @@ resource "aws_s3_bucket_cors_configuration" "jobs" {
   }
 }
 output "public_config" {
-  value = { api = aws_apigatewayv2_api.api.api_endpoint, issuer = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.users.id}", clientId = aws_cognito_user_pool_client.web.id, login = "https://${aws_cognito_user_pool_domain.login.domain}.auth.${var.region}.amazoncognito.com", origin = var.origin }
+  value = { api = aws_apigatewayv2_api.api.api_endpoint, edfEnabled = local.edf_enabled, edfLgbmEnabled = var.edf_lgbm_enabled, issuer = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.users.id}", clientId = aws_cognito_user_pool_client.web.id, login = "https://${aws_cognito_user_pool_domain.login.domain}.auth.${var.region}.amazoncognito.com", origin = var.origin }
 }
 output "user_pool" { value = aws_cognito_user_pool.users.id }
 

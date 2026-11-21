@@ -5,7 +5,7 @@ import json
 import os
 import tempfile
 import time
-from contextlib import closing
+from contextlib import closing, nullcontext
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -14,7 +14,9 @@ import boto3
 import joblib
 
 from sleep_staging.provenance import hash_file
-from sleep_staging.serving.contract import MAX_BYTES, predictions, read_night
+from sleep_staging.sensor_profiles import MAX_EDF_BYTES, validate_lgbm_profile
+from sleep_staging.serving.contract import LABELS, MAX_BYTES, predictions, read_night
+from sleep_staging.stack_release import EXAMPLE_SHA256, MODEL, VERSION
 
 
 @lru_cache(maxsize=1)
@@ -45,45 +47,157 @@ def load_release() -> tuple[dict, Any]:
     return manifest, model
 
 
+@lru_cache(maxsize=1)
+def load_edf_release() -> tuple[Any, dict]:
+    import torch
+
+    from sleep_staging.fullnight.training import load_model
+
+    s3 = boto3.client("s3")
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "model.pt"
+        s3.download_file(
+            os.environ["RELEASE_BUCKET"],
+            os.environ["EDF_MODEL_KEY"],
+            str(path),
+            ExtraArgs={"VersionId": os.environ["EDF_MODEL_VERSION"]},
+        )
+        if hash_file(path) != os.environ["EDF_MODEL_SHA256"]:
+            raise RuntimeError("EDF model integrity failure")
+        torch.set_num_threads(2)
+        return load_model(path, torch.device("cpu"))
+
+
 def handler(event: dict, context: Any) -> dict:
     import pyarrow as pa
 
     start = time.monotonic()
     s3 = boto3.client("s3")
-    manifest, model = load_release()
+    edf = event.get("format") == "edf"
     jobs = os.environ["JOBS_BUCKET"]
     prefix = f"users/{event['owner']}/results/{event['job']}"
-    bucket = os.environ["RELEASE_BUCKET"] if event["example"] else jobs
-    obj = s3.get_object(
-        Bucket=bucket, Key=event["input_key"], VersionId=event["input_version"]
-    )
-    with closing(obj["Body"]) as stream, tempfile.TemporaryDirectory() as folder:
-        if obj["ContentLength"] > MAX_BYTES:
-            return {"state": "failed", "reason": "Archivo demasiado grande."}
-        path = Path(folder) / "input.parquet"
-        with path.open("wb") as f:
-            for chunk in stream.iter_chunks(65536):
-                f.write(chunk)
+
+    hybrid = event.get("model") == MODEL and edf
+    bundled = hybrid and event["example"]
+    if bundled and (event["input_key"], event["input_version"], event["sha256"]) != (
+        "bundled/example.edf",
+        VERSION,
+        EXAMPLE_SHA256,
+    ):
+        raise RuntimeError("Referencia de ejemplo incompatible.")
+    if not bundled:
+        bucket = os.environ["RELEASE_BUCKET"] if event["example"] else jobs
+        obj = s3.get_object(
+            Bucket=bucket, Key=event["input_key"], VersionId=event["input_version"]
+        )
+    with (
+        nullcontext(None) if bundled else closing(obj["Body"]) as stream,
+        tempfile.TemporaryDirectory() as folder,
+    ):
+        if bundled:
+            from sleep_staging.serving.stacked_edf import EXAMPLE_PATH
+
+            path = EXAMPLE_PATH
+        else:
+            assert stream is not None
+            if obj["ContentLength"] > (MAX_EDF_BYTES if edf else MAX_BYTES):
+                return {"state": "failed", "reason": "Archivo demasiado grande."}
+            path = Path(folder) / ("input.edf" if edf else "input.parquet")
+            with path.open("wb") as f:
+                for chunk in stream.iter_chunks(65536):
+                    f.write(chunk)
         if hash_file(path) != event["sha256"]:
             return {
                 "state": "failed",
                 "reason": "El archivo no coincide con su checksum.",
             }
-        try:
-            frame = read_night(path, manifest)
-        except (ValueError, pa.ArrowException, OverflowError):
-            return {
-                "state": "failed",
-                "reason": "El archivo no cumple el contrato de una noche preparada.",
+        if hybrid:
+            from sleep_staging.serving.edf_lgbm import IncompatibleEDF
+            from sleep_staging.serving.stacked_edf import (
+                score,
+            )
+            from sleep_staging.serving.stacked_edf import (
+                summary as stack_summary,
+            )
+
+            try:
+                validate_lgbm_profile(event.get("profile", "auto"))
+                result = score(path, event["job"])
+            except IncompatibleEDF as exc:
+                return {"state": "failed", "reason": str(exc)}
+            except (ValueError, EOFError, OverflowError, OSError):
+                return {
+                    "state": "failed",
+                    "reason": "EDF incompatible con los cuatro canales del modelo.",
+                }
+            details = stack_summary(result)
+        elif edf and event.get("model") == "lightgbm":
+            from sleep_staging.serving.edf_lgbm import (
+                IncompatibleEDF,
+                prepare_edf,
+                score_night,
+            )
+
+            manifest, model = load_release()
+            try:
+                profile = validate_lgbm_profile(event.get("profile", "auto"))
+                frame = prepare_edf(path, event["job"])
+            except IncompatibleEDF as exc:
+                return {"state": "failed", "reason": str(exc)}
+            except (ValueError, EOFError, OverflowError, OSError):
+                return {"state": "failed", "reason": "EDF incompatible con LightGBM."}
+            result = score_night(model, manifest, frame)
+            details = {
+                "model_version": manifest["release_id"],
+                "preprocessing_id": manifest["preprocessing_id"],
+                "classes": LABELS,
+                "profile": profile,
+                "window": "full",
+                "rows": len(frame),
+                "eligible": int(frame.eligible.sum()),
             }
-        result = predictions(model, manifest, frame)
+        elif edf:
+            if event.get("model", "fullnight") != "fullnight":
+                return {"state": "failed", "reason": "Modelo EDF desconocido."}
+            import torch
+
+            from sleep_staging.serving.edf import edf_summary, predict_edf
+
+            net, meta = load_edf_release()
+            try:
+                result, profile = predict_edf(
+                    path,
+                    net,
+                    event.get("profile", "auto"),
+                    event["job"],
+                    torch.device("cpu"),
+                )
+            except (ValueError, EOFError, OverflowError, OSError):
+                return {
+                    "state": "failed",
+                    "reason": "EDF o perfil de canales incompatible.",
+                }
+            details = edf_summary(result, profile, meta)
+        else:
+            manifest, model = load_release()
+            try:
+                frame = read_night(path, manifest)
+            except (ValueError, pa.ArrowException, OverflowError):
+                return {
+                    "state": "failed",
+                    "reason": "El archivo no cumple el contrato de una noche preparada.",
+                }
+            result = predictions(model, manifest, frame)
+            details = {
+                "model_version": manifest["release_id"],
+                "preprocessing_id": manifest["preprocessing_id"],
+                "rows": len(frame),
+                "eligible": int(frame.eligible.sum()),
+            }
         summary = {
+            **details,
             "job_id": event["job"],
             "inference_seconds": round(time.monotonic() - start, 3),
-            "model_version": manifest["release_id"],
-            "preprocessing_id": manifest["preprocessing_id"],
-            "rows": len(frame),
-            "eligible": int(frame.eligible.sum()),
             "input_sha256": event["sha256"],
         }
         payload = {

@@ -23,9 +23,7 @@ def predict_features(
             "Las características no corresponden al preprocesamiento del modelo."
         )
     model = mlflow.sklearn.load_model(model_uri)
-    prediction = np.asarray(
-        model.predict(frame[columns])
-    ).reshape(-1)
+    prediction = np.asarray(model.predict(frame[columns])).reshape(-1)
 
     if len(prediction) != len(frame):
         raise ValueError("Número de predicciones incompatible con la entrada")

@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 const remote = !!process.env.DEMO_ORIGIN;
 export default defineConfig({
   testDir: "./tests",
-  testMatch: remote ? "predictions.spec.ts" : "ux.spec.ts",
+  testMatch: process.env.MAIA_LOCAL_EDF || process.env.MAIA_LOCAL_STACK ? "local-edf.spec.ts" : remote ? "predictions.spec.ts" : ["ux.spec.ts", "local-edf.spec.ts"],
   timeout: remote ? 150000 : 30000,
   workers: 1,
   retries: 0,
