@@ -24,7 +24,7 @@ from docx.shared import Cm, Pt
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "Articulo_final_borrador.docx"
+OUT = HERE / "Articulo_final.docx"
 FONT = "Times New Roman"
 
 doc = Document()
@@ -211,23 +211,22 @@ para("{c.alarcond, a.bautistap, j.buila}@uniandes.edu.co",
 
 para(
     "**Resumen.** La estadificación del sueño a partir de la polisomnografía (PSG) se realiza "
-    "manualmente en épocas de 30 segundos, es costosa y presenta variabilidad entre evaluadores, "
-    "especialmente en el estadio de transición N1. Este trabajo desarrolla y despliega una solución "
-    "de aprendizaje de máquina que clasifica cinco estadios (W, N1, N2, N3 y REM) con datos del "
-    "subconjunto Sleep Cassette de Sleep-EDF Expanded (153 noches, 78 sujetos). Se construyó un "
-    "pipeline reproducible que segmenta las señales, extrae 145 descriptores estadísticos, "
-    "espectrales y no lineales por época a partir de dos canales de EEG, EOG y EMG, y añade 290 "
-    "variables de contexto temporal. Con una partición fija por sujeto (62 sujetos de desarrollo "
-    "evaluados con validación cruzada de cinco folds y 16 reservados para la prueba final) se "
-    "compararon un clasificador mayoritario, Random Forest, CatBoost, LightGBM y redes LSTM/BiLSTM, "
-    "con ajuste de hiperparámetros anidado por sujeto. El modelo seleccionado, LightGBM ajustado, "
-    "alcanzó un F1 macro de 0,789 ± 0,018, una exactitud de 0,830 y un kappa de Cohen de 0,769 "
-    "en validación cruzada, frente a 0,655 de F1 macro de la línea base inicial con un solo canal. "
-    "La fusión multicanal y el contexto temporal explican la mayor parte de la mejora, mientras "
-    "que N1 sigue siendo el estadio más difícil (F1 = 0,52). El modelo se desplegó como una "
-    "aplicación web pública sobre AWS y Vercel, definida con Terraform, que procesa una noche "
-    "completa en alrededor de dos segundos y presenta el hipnograma estimado. "
-    "[PENDIENTE: resultado sobre los 16 sujetos de prueba.]"
+    "manualmente en épocas de 30 segundos, es costosa y varía entre evaluadores, sobre todo en el "
+    "estadio de transición N1. Este trabajo desarrolla y despliega una solución de aprendizaje de "
+    "máquina que clasifica cinco estadios (W, N1, N2, N3 y REM) con el subconjunto Sleep Cassette "
+    "de Sleep-EDF Expanded (153 noches, 78 sujetos). Un pipeline reproducible extrae 145 "
+    "descriptores estadísticos, espectrales y no lineales por época a partir de dos canales de EEG, "
+    "EOG y EMG, y añade 290 variables de contexto temporal. Con una partición fija por sujeto (62 "
+    "de desarrollo, evaluados con validación cruzada de cinco folds, y 16 reservados para la prueba "
+    "final) se compararon un clasificador mayoritario, Random Forest, CatBoost, LightGBM y redes "
+    "LSTM/BiLSTM, con ajuste de hiperparámetros anidado por sujeto. El modelo seleccionado, "
+    "LightGBM ajustado, obtuvo en la prueba final un F1 macro de 0,788 y un kappa de Cohen de "
+    "0,768 (exactitud de 0,834), prácticamente iguales a los de validación cruzada y por encima "
+    "del umbral de éxito de 0,70; la línea base con un solo canal alcanzaba 0,655 de F1 macro. La "
+    "fusión multicanal y el contexto temporal explican la mayor parte de la mejora, mientras que N1 "
+    "sigue siendo el estadio más difícil (F1 = 0,52). El modelo se desplegó como una aplicación web "
+    "pública sobre AWS y Vercel, definida con Terraform, que procesa una noche completa en unos dos "
+    "segundos y presenta el hipnograma estimado."
 )
 para("**Palabras clave:** estadificación del sueño, electroencefalografía, gradient boosting, "
      "contexto temporal, despliegue en la nube.", after=8)
@@ -279,7 +278,7 @@ para(
     "Sleep-EDF Expanded [5]–[7] es uno de los conjuntos públicos más utilizados para evaluar "
     "estadificación automática. Su subconjunto Sleep Cassette, con 153 noches de 78 sujetos sanos "
     "de 25 a 101 años, se conoce en la literatura como Sleep-EDF-78. Los trabajos sobre este "
-    "conjunto pueden agruparse en tres familias."
+    "conjunto pueden agruparse en tres familias, a las que se suman tendencias más recientes."
 )
 para(
     "**Métodos basados en características.** Extraen descriptores temporales, espectrales y no "
@@ -296,14 +295,26 @@ para(
     "transiciones entre épocas. TinySleepNet [13] simplificó esa arquitectura y mejoró su "
     "eficiencia. SeqSleepNet [14] y XSleepNet [15] modelan secuencias de épocas con "
     "representaciones tiempo-frecuencia, y AttnSleep [16] incorpora mecanismos de atención. Estos "
-    "modelos reportan exactitudes de 81 % a 84 % y F1 macro de 75 % a 78 % en Sleep-EDF-78, "
-    "normalmente con un único canal Fpz-Cz [VERIFICAR cifras exactas en cada fuente]."
+    "modelos reportan en Sleep-EDF-78, con validación por sujeto y un solo canal Fpz-Cz, "
+    "exactitudes de 78 % a 83 % y F1 macro de 72 % a 78 % [16]."
 )
 para(
     "**Fusión multicanal.** Trabajos recientes combinan EEG, EOG y EMG y analizan mediante "
-    "ablaciones el aporte de cada canal y del contexto temporal [17]. La información del EOG "
+    "ablaciones el aporte de cada canal y del contexto temporal [11], [15]. La información del EOG "
     "ayuda a reconocer REM y la del EMG a separar vigilia y REM, estadios que el EEG por sí solo "
     "confunde con frecuencia."
+)
+para(
+    "**Tendencias recientes.** La investigación se ha desplazado hacia modelos más generales y "
+    "auditables. U-Sleep [17] se entrenó con registros de más de 15.000 participantes de 16 "
+    "estudios clínicos y mostró que un solo modelo puede generalizar a cohortes y montajes no "
+    "vistos. SleepTransformer [18] usa solo transformers y aporta interpretabilidad mediante los "
+    "pesos de atención y una medida de incertidumbre por época, útil para remitir al experto los "
+    "casos dudosos. L-SeqSleepNet [19] modela ciclos de sueño completos (unos 90 minutos) y reduce "
+    "la sobrepredicción de N2. Más recientemente, los modelos fundacionales preentrenados con "
+    "grandes volúmenes de PSG se adaptan a la estadificación y a otras tareas, como la detección de "
+    "patologías [20]. Estos enfoques mejoran la generalidad a costa de más datos, más cómputo y "
+    "despliegues más exigentes."
 )
 para(
     "**Brechas identificadas.** Primero, las cifras publicadas no siempre son comparables: los "
@@ -312,7 +323,7 @@ para(
     "desempeño. Segundo, pocos trabajos comparan de forma controlada modelos basados en "
     "características y redes recurrentes con exactamente las mismas particiones y objetivos. "
     "Tercero, la mayoría se detiene en la evaluación offline y no aborda el despliegue, la "
-    "reproducibilidad ni el costo de inferencia. Este proyecto se centra en esas tres brechas: "
+    "reproducibilidad ni el costo de inferencia, que crece con los modelos más recientes. Este proyecto se centra en esas tres brechas: "
     "validación estrictamente por sujeto, comparación controlada entre familias y una solución "
     "desplegada y trazable."
 )
@@ -432,10 +443,10 @@ para(
 h2("3.4. Modelos")
 para(
     "Se compararon cinco familias de modelos con las mismas particiones (Tabla 4). El clasificador "
-    "mayoritario (Dummy) fija el desempeño mínimo. Random Forest [18] fue la línea base del avance. "
-    "LightGBM [19] y CatBoost [20] son implementaciones de gradient boosting sobre árboles, "
+    "mayoritario (Dummy) fija el desempeño mínimo. Random Forest [21] fue la línea base del avance. "
+    "LightGBM [22] y CatBoost [23] son implementaciones de gradient boosting sobre árboles, "
     "eficientes con cientos de variables y robustas al desbalance mediante pesos de clase. Las "
-    "redes LSTM y BiLSTM [21] modelan explícitamente la secuencia de épocas. La CNN 1D sobre EEG "
+    "redes LSTM y BiLSTM [24] modelan explícitamente la secuencia de épocas. La CNN 1D sobre EEG "
     "crudo se evaluó solo en la fase piloto (ocho sujetos), donde obtuvo un F1 macro de 0,354 "
     "frente a 0,583 de Random Forest; por su bajo desempeño y su costo se priorizaron las redes "
     "recurrentes sobre características."
@@ -473,19 +484,19 @@ para(
     "La imputación, el escalado y los pesos de clase se ajustan solo con datos de entrenamiento."
 )
 para(
-    "Las métricas son el F1 macro (principal), la exactitud, el kappa de Cohen [22], el F1 por "
+    "Las métricas son el F1 macro (principal), la exactitud, el kappa de Cohen [25], el F1 por "
     "estadio y la matriz de confusión. Se reporta el promedio y la desviación estándar entre "
     "folds, y para comparar dos modelos se calcula un intervalo de confianza del 95 % mediante "
     "2.000 remuestreos bootstrap emparejados de sujetos completos sobre las predicciones fuera de "
-    "muestra (OOF) [23]. Los 16 sujetos de prueba se evalúan una sola vez, con la configuración "
+    "muestra (OOF) [26]. Los 16 sujetos de prueba se evalúan una sola vez, con la configuración "
     "congelada."
 )
 
 h2("3.6. Herramientas y entorno")
 para(
-    "La solución se implementó en Python. MNE [24] y SciPy se usaron para leer y filtrar las "
-    "señales; pandas, NumPy y scikit-learn [25] para la manipulación de datos y los modelos "
-    "clásicos; LightGBM y CatBoost para boosting; PyTorch [26] para las redes; y MLflow [27] para "
+    "La solución se implementó en Python. MNE [27] y SciPy se usaron para leer y filtrar las "
+    "señales; pandas, NumPy y scikit-learn [28] para la manipulación de datos y los modelos "
+    "clásicos; LightGBM y CatBoost para boosting; PyTorch [29] para las redes; y MLflow [30] para "
     "registrar parámetros, métricas, predicciones y modelos. Las configuraciones se declaran en "
     "YAML, los datos intermedios se guardan en Parquet y NumPy con identificadores por hash de "
     "entradas, parámetros y código, y el entorno se fija con uv. El repositorio incluye pruebas "
@@ -510,7 +521,9 @@ para(
     "una instancia EC2 efímera, registra el experimento en SageMaker MLflow y produce un "
     "candidato que solo se promueve si reproduce las predicciones de referencia. Cada versión del "
     "flujo apunta a una versión fija del modelo, lo que permite revertir un cambio. "
-    "[PENDIENTE: describir la carga directa de archivos EDF, en desarrollo.]"
+    "En la versión actual, la aplicación recibe una noche ya preparada en formato Parquet, con "
+    "las 145 variables por época y su metadato de procedencia; la carga directa de archivos EDF, "
+    "que exige además detectar el periodo de sueño sin anotaciones, está en desarrollo."
 )
 
 # 4 ------------------------------------------------------------------------------------------
@@ -576,15 +589,61 @@ figure(ROOT / "docs/assets/refinement/best-new-confusion.png",
        width_cm=15.5)
 
 h2("4.3. Evaluación sobre el conjunto de prueba")
-para("[PENDIENTE: evaluar una única vez el modelo congelado sobre los 16 sujetos reservados "
-     "(43.417 épocas) y reportar F1 macro, exactitud, kappa, F1 por estadio e intervalo de "
-     "confianza por sujeto.]")
+para(
+    "Con la configuración congelada, el modelo se reentrenó con los 62 sujetos de desarrollo "
+    "(261 iteraciones, semilla 542) y se evaluó **una sola vez** sobre los 16 sujetos reservados: "
+    "31 noches y 43.417 épocas que no intervinieron en ninguna decisión de modelado. Los EDF de "
+    "prueba se verificaron con SHA-256 y se procesaron con el mismo protocolo que los de "
+    "desarrollo. La Tabla 7 muestra los resultados; los intervalos del 95 % se obtuvieron con "
+    "2.000 remuestreos bootstrap de sujetos completos."
+)
+table(
+    "Desempeño en el conjunto de prueba (16 sujetos) frente a la validación cruzada.",
+    ["Métrica", "Validación cruzada", "Prueba", "IC 95 % (prueba)"],
+    [
+        ["F1 macro", "0,789", "0,788", "0,743 – 0,822"],
+        ["Exactitud", "0,830", "0,834", "0,810 – 0,861"],
+        ["Kappa de Cohen", "0,769", "0,768", "0,731 – 0,809"],
+        ["F1 W / N1 / N2", "0,924 / 0,516 / 0,849", "0,924 / 0,516 / 0,849", "—"],
+        ["F1 N3 / REM", "0,808 / 0,854", "0,793 / 0,858", "—"],
+    ],
+    widths=[3.6, 4.4, 4.0, 4.0],
+    note="Validación cruzada: media de cinco folds (métricas globales) y predicciones OOF "
+         "agrupadas (F1 por estadio). Por sujeto, el F1 macro de prueba varió entre 0,552 y 0,888 "
+         "y el kappa entre 0,611 y 0,885.",
+)
+para(
+    "El desempeño en prueba prácticamente coincide con el estimado en desarrollo, lo que indica "
+    "que el protocolo de validación anidada por sujeto no sobrestimó la capacidad de "
+    "generalización. Incluso los límites inferiores de los intervalos superan 0,70 en F1 macro "
+    "y en kappa. La matriz de confusión (Figura 4) repite el patrón observado en desarrollo: N1 "
+    "es el estadio más difícil (recall 0,57) y se confunde sobre todo con N2 (27 %) y W (10 %); "
+    "21 % de las épocas N3 se clasifican como N2."
+)
+figure(ROOT / "docs/articulo/figura_confusion_prueba.png",
+       "Matriz de confusión en el conjunto de prueba (16 sujetos, 43.417 épocas), en conteos y "
+       "proporciones por fila.", width_cm=15.5)
+para(
+    "**Análisis cualitativo.** La Figura 5 compara el hipnograma del experto con el predicho para "
+    "la noche SC4771, del sujeto de prueba cuyo kappa (0,764) es el más cercano a la mediana; no es "
+    "el mejor caso, sino uno típico. Es una noche fragmentada, con 26 % de N1 y numerosos "
+    "despertares breves. El modelo reproduce la arquitectura de la noche: la alternancia de ciclos, "
+    "los periodos REM y la vigilia prolongada a mitad del registro, y coincide en 80,5 % de las "
+    "épocas. Los desacuerdos se agrupan en las fronteras entre estadios, sobre todo N1/N2, N1/W y "
+    "N1/REM, "
+    "y en despertares de una o dos épocas; además, el modelo predice algunas épocas aisladas de N3 "
+    "que el experto puntuó como N2. Estos errores de transición son los mismos que generan "
+    "discrepancias entre evaluadores humanos [3]."
+)
+figure(ROOT / "docs/articulo/figura_hipnograma.png",
+       "Hipnograma de referencia (arriba) y predicho (abajo) para la noche de prueba SC4771; los "
+       "puntos marcan las épocas en desacuerdo.", width_cm=16.0)
 
 h2("4.4. Desempeño del servicio desplegado")
 para(
     "El 18 de noviembre de 2026 se verificó el flujo completo con la noche pública SC4001 "
     "(841 épocas). Las clases y las cinco probabilidades coincidieron con la referencia local "
-    "(diferencia máxima de 5,6·10⁻¹⁶). La Tabla 7 resume los tiempos medidos."
+    "(diferencia máxima de 5,6·10⁻¹⁶). La Tabla 8 resume los tiempos medidos."
 )
 table(
     "Tiempos del servicio desplegado.",
@@ -603,29 +662,34 @@ para(
     "**Cumplimiento de los criterios de éxito.** La propuesta definió tres criterios: (i) F1 macro "
     "y kappa ≥ 0,70 en el conjunto de prueba; (ii) superar la línea base con las mismas "
     "particiones; y (iii) procesar un registro en menos de cinco minutos y presentar el "
-    "hipnograma. En validación cruzada, el modelo seleccionado supera el umbral en ambas métricas "
-    "(0,789 y 0,769), supera ampliamente a la línea base y el servicio responde en menos de dos "
-    "segundos por noche. [PENDIENTE: confirmar el criterio (i) con el conjunto de prueba.]"
+    "hipnograma. Los tres se cumplen: en el conjunto de prueba el modelo alcanza un F1 macro de "
+    "0,788 y un kappa de 0,768, con intervalos cuyo límite inferior también supera 0,70; supera "
+    "ampliamente a la línea base de Random Forest (0,655 de F1 macro con las mismas particiones "
+    "en desarrollo) y al clasificador mayoritario; y el servicio responde en menos de dos "
+    "segundos por noche."
 )
 para(
-    "**Comparación con la literatura.** El F1 macro de 0,789 y el kappa de 0,769 están en el rango "
-    "de los modelos profundos publicados para Sleep-EDF-78 (Tabla 8). La comparación es "
+    "**Comparación con la literatura.** El F1 macro de 0,788 y el kappa de 0,768 en prueba están en "
+    "el rango de los modelos profundos publicados para Sleep-EDF-78 (Tabla 9). La comparación es "
     "orientativa: este trabajo usa cuatro señales y no solo Fpz-Cz, valida con cinco folds por "
     "sujeto y conserva 30 minutos de vigilia, condiciones que no coinciden exactamente con las de "
     "cada referencia."
 )
 table(
-    "Comparación orientativa con trabajos sobre Sleep-EDF-78. [VERIFICAR cifras en cada fuente]",
+    "Comparación orientativa con trabajos sobre Sleep-EDF-78 (validación por sujeto y ±30 min de vigilia).",
     ["Trabajo", "Señales", "Exactitud", "F1 macro", "Kappa"],
     [
-        ["DeepSleepNet [12]", "Fpz-Cz", "[VERIFICAR]", "[VERIFICAR]", "[VERIFICAR]"],
-        ["TinySleepNet [13]", "Fpz-Cz", "0,831", "0,781", "0,77"],
+        ["DeepSleepNet [12], según [16]", "Fpz-Cz", "0,778", "0,718", "0,70"],
         ["AttnSleep [16]", "Fpz-Cz", "0,813", "0,751", "0,74"],
-        ["XSleepNet [15]", "Fpz-Cz", "0,840", "0,779", "0,778"],
-        ["Este trabajo (LightGBM ajustado)", "EEG ×2, EOG, EMG", "0,830", "0,789", "0,769"],
+        ["SeqSleepNet [14], 3 épocas, según [16]", "Fpz-Cz", "0,826", "0,763", "0,76"],
+        ["AttnSleep [16], 3 épocas", "Fpz-Cz", "0,829", "0,781", "0,77"],
+        ["Este trabajo · CV (LightGBM ajustado)", "EEG ×2, EOG, EMG", "0,830", "0,789", "0,769"],
+        ["Este trabajo · prueba (16 sujetos)", "EEG ×2, EOG, EMG", "0,834", "0,788", "0,768"],
     ],
-    widths=[5.5, 3.5, 2.3, 2.3, 2.3],
-    bold_rows=(4,),
+    widths=[5.8, 3.3, 2.3, 2.3, 2.3],
+    bold_rows=(4, 5),
+    note="Cifras de [16], Tablas V y VI: validación cruzada de 20 folds por sujeto. Este trabajo usa "
+         "cinco folds por sujeto y cuatro señales, por lo que la comparación es orientativa.",
 )
 para(
     "**Fortalezas.** El protocolo evita la fuga de información entre sujetos, separa la selección "
@@ -657,9 +721,10 @@ para(
 h1("6. Conclusiones y trabajo futuro")
 para(
     "Se desarrolló y desplegó una solución de estadificación automática del sueño en cinco "
-    "clases que, en validación cruzada por sujeto sobre 62 sujetos de Sleep-EDF-78, alcanza un "
-    "F1 macro de 0,789 y un kappa de 0,769, por encima del umbral de 0,70 definido en la "
-    "propuesta y cerca de la concordancia entre expertos. La fusión de EEG, EOG y EMG y el "
+    "clases que, evaluada una sola vez sobre 16 sujetos reservados de Sleep-EDF-78, alcanza un "
+    "F1 macro de 0,788 y un kappa de 0,768, por encima del umbral de 0,70 definido en la "
+    "propuesta, cerca de la concordancia entre expertos y prácticamente igual a lo estimado en "
+    "validación cruzada (0,789 y 0,769). La fusión de EEG, EOG y EMG y el "
     "contexto temporal fueron los factores decisivos: juntos elevaron el F1 macro en 0,13 "
     "puntos respecto de la línea base. Un modelo LightGBM ajustado igualó a las redes "
     "recurrentes con un costo de inferencia mucho menor, lo que facilitó un despliegue sin "
@@ -727,8 +792,17 @@ refs = [
     "E. Eldele et al., “An attention-based deep learning approach for sleep stage classification "
     "with single-channel EEG,” *IEEE Trans. Neural Syst. Rehabil. Eng.*, vol. 29, pp. 809–818, "
     "2021, doi: 10.1109/TNSRE.2021.3076234.",
-    "Mari et al., “[VERIFICAR título y autores],” *Sensors*, vol. 26, n.º 19, art. 6011, 2026, "
-    "doi: 10.3390/s26196011.",
+    "M. Perslev, S. Darkner, L. Kempfner, M. Nikolic, P. J. Jennum y C. Igel, “U-Sleep: resilient "
+    "high-frequency sleep staging,” *npj Digit. Med.*, vol. 4, art. 72, 2021, "
+    "doi: 10.1038/s41746-021-00440-5.",
+    "H. Phan, K. Mikkelsen, O. Y. Chén, P. Koch, A. Mertins y M. De Vos, “SleepTransformer: "
+    "automatic sleep staging with interpretability and uncertainty quantification,” *IEEE Trans. "
+    "Biomed. Eng.*, vol. 69, n.º 8, pp. 2456–2467, 2022, doi: 10.1109/TBME.2022.3147187.",
+    "H. Phan et al., “L-SeqSleepNet: whole-cycle long sequence modeling for automatic sleep "
+    "staging,” *IEEE J. Biomed. Health Inform.*, vol. 27, n.º 10, pp. 4748–4757, 2023, "
+    "doi: 10.1109/JBHI.2023.3303197.",
+    "W. Huang et al., “A unified time-frequency foundation model for sleep decoding,” *Nat. "
+    "Commun.*, vol. 17, art. 1198, 2026, doi: 10.1038/s41467-025-67970-4.",
     "L. Breiman, “Random forests,” *Mach. Learn.*, vol. 45, pp. 5–32, 2001, "
     "doi: 10.1023/A:1010933404324.",
     "G. Ke et al., “LightGBM: a highly efficient gradient boosting decision tree,” en *Adv. Neural "
