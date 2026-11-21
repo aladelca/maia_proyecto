@@ -1,23 +1,44 @@
+import architecture from "./assets/arquitectura-solucion.png";
 const repo = "https://github.com/aladelca/maia_proyecto";
 const report = repo + "/blob/main/docs/comparacion-fullnight-lightgbm.md";
 
 export function Project() {
   return (
     <>
-      <section className="panel" id="proyecto">
-        <h2>Sobre el proyecto</h2>
+      <section className="panel" id="resumen-proyecto">
+        <h2>Clasificación automática de estadios del sueño mediante aprendizaje de máquina a partir de señales EEG</h2>
         <p>
-          MAIA estima la secuencia de vigilia, N1, N2, N3 y REM de una noche a
+          Esta solución forma parte del proyecto de grado de la Maestría en Inteligencia Artificial (MAIA) de la Universidad de los Andes. Busca estimar la secuencia de vigilia, N1, N2, N3 y REM de una noche a
           partir de dos derivaciones de electroencefalografía, una señal de
           movimientos oculares y una envolvente de actividad muscular. Cada
           punto del hipnograma representa 30 segundos.
         </p>
-        <p>
-          Proyecto de grado de Carlos Adrián Alarcón Delgado, Andrés Enrique
-          Bautista Pabón y John Janer Buila Ferrin, Maestría en Inteligencia
-          Artificial de la Universidad de los Andes.{" "}
-          <a href={repo}>Repositorio del proyecto</a>.
-        </p>
+      </section>
+      <section className="panel repository-panel" id="repositorio">
+        <p className="eyebrow">CÓDIGO Y DOCUMENTACIÓN</p>
+        <h2>Repositorio del proyecto</h2>
+        <p>Consulta el código fuente, la documentación técnica, los experimentos y el historial de desarrollo de la solución.</p>
+        <a className="repository-link" href={repo} target="_blank" rel="noreferrer">Ver repositorio en GitHub <span aria-hidden="true">↗</span></a>
+      </section>
+      <section className="panel" id="arquitectura">
+        <h2>Arquitectura de la solución</h2>
+        <p>Del archivo de una noche a una visualización de sus estadios: así se conectan la carga, el procesamiento y los resultados.</p>
+        <figure className="architecture-figure">
+          <a href={architecture} target="_blank" rel="noreferrer" aria-label="Ampliar el diagrama de arquitectura de la solución">
+            <img src={architecture} width="1536" height="1024" alt="Flujo: cargar EDF, guardar en S3, preparar intervalos de 30 segundos, combinar 435 características fisiológicas con 5 probabilidades de FullNightNet, clasificar con LightGBM y mostrar hipnograma, CSV y resumen." />
+          </a>
+          <figcaption>Diagrama ilustrativo del análisis de un registro. El modelo ya está entrenado. Pulsa la imagen para ampliarla.</figcaption>
+        </figure>
+        <details className="record-details"><summary>Leer el flujo paso a paso</summary>
+          <ol className="architecture-steps">
+            <li><strong>Cargar:</strong> se recibe un EDF con los canales EEG, EOG y EMG requeridos.</li>
+            <li><strong>Guardar y procesar:</strong> el archivo se carga a S3 y se inicia un trabajo en AWS. La interfaz consulta su estado.</li>
+            <li><strong>Preparar:</strong> se validan las señales y se organizan en intervalos de 30 segundos.</li>
+            <li><strong>Combinar:</strong> se obtienen 435 características con contexto temporal y cinco probabilidades de FullNightNet.</li>
+            <li><strong>Clasificar:</strong> LightGBM utiliza las 440 entradas para estimar W, N1, N2, N3 o REM.</li>
+            <li><strong>Explorar:</strong> se muestran el hipnograma, las probabilidades descargables y un resumen orientativo.</li>
+          </ol>
+        </details>
       </section>
       <section className="panel" id="modelo">
         <h2>Cómo predice el modelo</h2>
@@ -113,3 +134,4 @@ export function Project() {
     </>
   );
 }
+

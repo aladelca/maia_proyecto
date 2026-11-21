@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 
 test("la interfaz publica una sola arquitectura y envía EDF al híbrido", async ({
@@ -57,9 +58,9 @@ test("la interfaz publica una sola arquitectura y envía EDF al híbrido", async
   await page.goto("/");
   await expect(page.locator("#night")).toHaveAttribute("accept", ".edf");
   await expect(page.getByRole("combobox")).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "Cómo predice el modelo" }),
-  ).toBeVisible();
+  await page.getByRole("tab", { name: "Sobre el proyecto" }).click();
+  await expect(page.getByRole("heading", { name: "Cómo predice el modelo" })).toBeVisible();
+  await page.getByRole("tab", { name: "Analizar una noche" }).click();
   await page.locator("#night").setInputFiles({
     name: "demo.edf",
     mimeType: "application/octet-stream",
@@ -156,7 +157,7 @@ test("el laboratorio espera la release elegida antes de admitir predicciones", a
   );
   await page.goto("/");
   await expect(page.getByRole("status")).toContainText(
-    "La API aún no confirma",
+    "El servicio aún no confirma",
   );
   await expect(
     page.getByRole("button", { name: "Probar ejemplo público" }),
