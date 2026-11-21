@@ -4,4 +4,5 @@ COPY src/sleep_staging/sensor_profiles.py ${LAMBDA_TASK_ROOT}/sleep_staging/sens
 ENV ACTIVE_EDF_MODEL=stack_five
 COPY src/sleep_staging/stack_release.py ${LAMBDA_TASK_ROOT}/sleep_staging/stack_release.py
 COPY services/api/app.py ${LAMBDA_TASK_ROOT}/app.py
+COPY services/api/openapi.json ${LAMBDA_TASK_ROOT}/openapi.json
 CMD ["app.handler"]

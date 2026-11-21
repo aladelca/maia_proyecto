@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 from unittest.mock import Mock
 from uuid import uuid4
@@ -370,3 +371,120 @@ def test_active_stack_accepts_only_edf_and_binds_published_example(monkeypatch):
                 payload["sha256"] == EXAMPLE_SHA256
                 and payload["input_version"] == VERSION
             )
+
+
+def test_health_is_public_and_never_calls_aws(monkeypatch):
+    client = Mock()
+    monkeypatch.setattr(api, "client", client)
+    monkeypatch.setenv("API_VERSION", "8fc1e91474f6")
+    monkeypatch.setenv("EDF_ENABLED", "1")
+    monkeypatch.setenv("EDF_LGBM_ENABLED", "0")
+    monkeypatch.delenv("ACTIVE_EDF_MODEL", raising=False)
+    reply = invoke("GET", "/health")
+    assert reply["statusCode"] == 200
+    assert json.loads(reply["body"]) == {
+        "status": "ok",
+        "service": "maia-sleep-api",
+        "version": "8fc1e91474f6",
+        "features": {
+            "parquet": True,
+            "edf_fullnight": True,
+            "edf_lightgbm": False,
+            "edf_stack_five": False,
+        },
+    }
+    monkeypatch.setenv("ACTIVE_EDF_MODEL", "stack_five")
+    assert json.loads(invoke("GET", "/health")["body"])["features"] == {
+        "parquet": False,
+        "edf_fullnight": False,
+        "edf_lightgbm": False,
+        "edf_stack_five": True,
+    }
+    client.assert_not_called()
+
+
+def test_readiness_reports_each_dependency_without_aws_details(monkeypatch):
+    for key, value in {
+        "AWS_REGION": "us-west-2",
+        "JOBS_BUCKET": "jobs",
+        "MACHINE_ARN": "arn:aws:states:us-west-2:111111111111:stateMachine:demo",
+        "EXAMPLE_KEY": "example",
+        "EXAMPLE_VERSION": "1",
+        "EXAMPLE_SHA256": "a" * 64,
+    }.items():
+        monkeypatch.setenv(key, value)
+    s3, states = Mock(), Mock()
+    monkeypatch.setattr(api, "client", lambda name: s3 if name == "s3" else states)
+    s3.get_bucket_versioning.return_value = {"Status": "Enabled"}
+    reply = invoke("GET", "/health/ready")
+    assert reply["statusCode"] == 200
+    assert json.loads(reply["body"]) == {
+        "status": "ready",
+        "checks": {"config": "ok", "storage": "ok", "workflow": "ok"},
+    }
+    assert s3.get_bucket_versioning.call_args.kwargs == {"Bucket": "jobs"}
+    alias = states.describe_state_machine_alias.call_args.kwargs
+    assert alias["stateMachineAliasArn"].endswith(":stateMachine:demo:live")
+
+    s3.get_bucket_versioning.return_value = {"Status": "Suspended"}
+    states.describe_state_machine_alias.side_effect = ClientError(
+        {"Error": {"Code": "AccessDeniedException", "Message": "secret detail"}},
+        "DescribeStateMachineAlias",
+    )
+    reply = invoke("GET", "/health/ready")
+    assert reply["statusCode"] == 503
+    assert json.loads(reply["body"])["checks"] == {
+        "config": "ok",
+        "storage": "error",
+        "workflow": "error",
+    }
+    assert "AccessDenied" not in reply["body"] and "secret" not in reply["body"]
+
+    monkeypatch.delenv("MACHINE_ARN")
+    s3.reset_mock()
+    reply = invoke("GET", "/health/ready")
+    assert reply["statusCode"] == 503
+    assert json.loads(reply["body"])["checks"] == {
+        "config": "error",
+        "storage": "skipped",
+        "workflow": "skipped",
+    }
+    assert not s3.get_bucket_versioning.called
+
+
+def test_documentation_is_served_with_its_content_type():
+    spec = invoke("GET", "/openapi.json")
+    assert spec["statusCode"] == 200
+    assert spec["headers"]["content-type"] == "application/json"
+    assert json.loads(spec["body"]) == json.loads(api.SPEC.read_text())
+    docs = invoke("GET", "/docs")
+    assert docs["statusCode"] == 200
+    assert docs["headers"]["content-type"].startswith("text/html")
+    assert 'url: "openapi.json"' in docs["body"]
+
+
+def test_flask_openapi_and_gateway_declare_the_same_routes():
+    """A route missing from API Gateway answers 404 in AWS even if Flask serves it."""
+    flask = {
+        (method, re.sub(r"<(\w+)>", r"{\1}", rule.rule))
+        for rule in api.app.url_map.iter_rules()
+        if rule.endpoint != "static"
+        for method in rule.methods - {"HEAD", "OPTIONS"}
+    }
+    spec = json.loads(api.SPEC.read_text())
+    documented = {
+        (method.upper(), path)
+        for path, operations in spec["paths"].items()
+        for method in operations
+    }
+    terraform = (Path(__file__).resolve().parents[2] / "infra/aws/main.tf").read_text()
+    declared = {
+        tuple(key.split(" ", 1))
+        for key in re.findall(r'"((?:GET|POST) /[^"]*)"', terraform)
+    }
+    declared |= {
+        (method, path.replace("/v1/", "/public/v1/", 1))
+        for method, path in declared
+        if path.startswith("/v1/")
+    }
+    assert flask == documented == declared

@@ -6,13 +6,24 @@ import json
 import os
 import re
 import uuid
+from collections.abc import Callable
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError
-from flask import Blueprint, Flask, g, jsonify, request, url_for
+from botocore.exceptions import BotoCoreError, ClientError
+from flask import (
+    Blueprint,
+    Flask,
+    Response,
+    current_app,
+    g,
+    jsonify,
+    request,
+    url_for,
+)
 from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException, ServiceUnavailable
 
@@ -25,7 +36,36 @@ from sleep_staging.sensor_profiles import (
 from sleep_staging.stack_release import EXAMPLE_SHA256, MODEL, VERSION
 
 MAX_BYTES = MAX_PARQUET_BYTES
+SPEC = Path(__file__).with_name("openapi.json")
+REQUIRED_ENV = (
+    "AWS_REGION",
+    "JOBS_BUCKET",
+    "MACHINE_ARN",
+    "EXAMPLE_KEY",
+    "EXAMPLE_VERSION",
+    "EXAMPLE_SHA256",
+)
+SWAGGER = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14"
+DOCS = f"""<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API de estadificación del sueño</title>
+<link rel="stylesheet" href="{SWAGGER}/swagger-ui.css" crossorigin="anonymous"
+  integrity="sha384-wxLW6kwyHktdDGr6Pv1zgm/VGJh99lfUbzSn6HNHBENZlCN7W602k9VkGdxuFvPn">
+</head>
+<body>
+<div id="docs"></div>
+<script src="{SWAGGER}/swagger-ui-bundle.js" crossorigin="anonymous"
+  integrity="sha384-wmyclcVGX/WhUkdkATwhaK1X1JtiNrr2EoYJ+diV3vj4v6OC5yCeSu+yW13SYJep"></script>
+<script>SwaggerUIBundle({{url: "openapi.json", dom_id: "#docs"}});</script>
+</body>
+</html>
+"""
 routes = Blueprint("v1", __name__, url_prefix="/v1")
+# Unauthenticated operational endpoints, outside the versioned job API.
+service = Blueprint("service", __name__)
 
 
 @lru_cache(maxsize=3)
@@ -237,13 +277,90 @@ def status(job: str) -> Any:
     return jsonify({**out, "job_id": job})
 
 
+def features() -> dict[str, bool]:
+    # While the published stack is active it replaces every other input.
+    stack = os.getenv("ACTIVE_EDF_MODEL") == MODEL
+    return {
+        "parquet": not stack,
+        "edf_fullnight": not stack and os.getenv("EDF_ENABLED") == "1",
+        "edf_lightgbm": not stack and os.getenv("EDF_LGBM_ENABLED") == "1",
+        "edf_stack_five": stack,
+    }
+
+
+@service.get("/health")
+def health() -> Any:
+    # Liveness only: it answers whenever the function runs and never calls AWS.
+    return jsonify(
+        status="ok",
+        service="maia-sleep-api",
+        version=os.getenv("API_VERSION", "local"),
+        features=features(),
+    )
+
+
+def storage_ready() -> bool:
+    versioning = client("s3").get_bucket_versioning(Bucket=os.environ["JOBS_BUCKET"])
+    # Jobs pin uploads by S3 version ID, so an unversioned bucket cannot serve them.
+    return versioning.get("Status") == "Enabled"
+
+
+def workflow_ready() -> bool:
+    client("stepfunctions").describe_state_machine_alias(
+        stateMachineAliasArn=os.environ["MACHINE_ARN"] + ":live"
+    )
+    return True
+
+
+def probe(name: str, check: Callable[[], bool]) -> str:
+    try:
+        return "ok" if check() else "error"
+    except (BotoCoreError, ClientError) as exc:
+        code = (
+            exc.response["Error"]["Code"]
+            if isinstance(exc, ClientError)
+            else type(exc).__name__
+        )
+        current_app.logger.error("Readiness check %s failed: %s", name, code)
+        return "error"
+
+
+@service.get("/health/ready")
+def ready() -> Any:
+    if all(os.getenv(name) for name in REQUIRED_ENV):
+        checks = {
+            "config": "ok",
+            "storage": probe("storage", storage_ready),
+            "workflow": probe("workflow", workflow_ready),
+        }
+    else:
+        checks = {"config": "error", "storage": "skipped", "workflow": "skipped"}
+    ok = all(state == "ok" for state in checks.values())
+    return jsonify(status="ready" if ok else "unavailable", checks=checks), (
+        200 if ok else 503
+    )
+
+
+@service.get("/openapi.json")
+def openapi() -> Response:
+    return Response(SPEC.read_bytes(), mimetype="application/json")
+
+
+@service.get("/docs")
+def docs() -> Response:
+    return Response(DOCS, mimetype="text/html")
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
+    app.register_blueprint(service)
     app.register_blueprint(routes)
     app.register_blueprint(routes, name="guest", url_prefix="/public/v1")
 
     @app.before_request
     def owner() -> Any:
+        if request.blueprint == "service":
+            return None
         if request.blueprint == "guest":
             if request.endpoint == "guest.example_info":
                 return None
@@ -307,7 +424,7 @@ def handler(event: dict, context: Any) -> dict:
         return {
             "statusCode": res.status_code,
             "headers": {
-                "content-type": "application/json",
+                "content-type": res.content_type,
                 "cache-control": "no-store",
             },
             "body": res.get_data(as_text=True),
