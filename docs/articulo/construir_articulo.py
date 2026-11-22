@@ -214,19 +214,17 @@ para(
     "manualmente en épocas de 30 segundos, es costosa y varía entre evaluadores, sobre todo en el "
     "estadio de transición N1. Este trabajo desarrolla y despliega una solución de aprendizaje de "
     "máquina que clasifica cinco estadios (W, N1, N2, N3 y REM) con el subconjunto Sleep Cassette "
-    "de Sleep-EDF Expanded (153 noches, 78 sujetos). Un pipeline reproducible extrae 145 "
-    "descriptores estadísticos, espectrales y no lineales por época a partir de dos canales de EEG, "
-    "EOG y EMG, y añade 290 variables de contexto temporal. Con una partición fija por sujeto (62 "
-    "de desarrollo, evaluados con validación cruzada de cinco folds, y 16 reservados para la prueba "
-    "final) se compararon un clasificador mayoritario, Random Forest, CatBoost, LightGBM y redes "
-    "LSTM/BiLSTM, con ajuste de hiperparámetros anidado por sujeto. El modelo seleccionado, "
-    "LightGBM ajustado, obtuvo en la prueba final un F1 macro de 0,788 y un kappa de Cohen de "
-    "0,768 (exactitud de 0,834), prácticamente iguales a los de validación cruzada y por encima "
-    "del umbral de éxito de 0,70; la línea base con un solo canal alcanzaba 0,655 de F1 macro. La "
-    "fusión multicanal y el contexto temporal explican la mayor parte de la mejora, mientras que N1 "
-    "sigue siendo el estadio más difícil (F1 = 0,52). El modelo se desplegó como una aplicación web "
-    "pública sobre AWS y Vercel, definida con Terraform, que procesa una noche completa en unos dos "
-    "segundos y presenta el hipnograma estimado."
+    "de Sleep-EDF Expanded (153 noches, 78 sujetos). Se extraen 145 descriptores por época de dos "
+    "canales de EEG, EOG y EMG, más 290 variables de contexto temporal. Con una partición fija por "
+    "sujeto (62 de desarrollo, con validación cruzada anidada de cinco folds, y 16 reservados) se "
+    "compararon Random Forest, CatBoost, LightGBM y redes LSTM/BiLSTM. El modelo seleccionado, "
+    "LightGBM, obtuvo en la prueba final un F1 macro de 0,788 y un kappa de 0,768, por encima del "
+    "umbral de éxito de 0,70 y prácticamente iguales a los de validación cruzada; la línea base con "
+    "un solo canal alcanzaba 0,655. Un modelo híbrido que añade a LightGBM las probabilidades de "
+    "una red convolucional aplicada a la señal completa elevó el F1 macro a 0,797 y permitió "
+    "clasificar el EDF completo sin anotaciones (F1 macro 0,781, kappa 0,808). N1 sigue siendo el "
+    "estadio más difícil. El híbrido se desplegó como una aplicación web pública sobre AWS y "
+    "Vercel, definida con Terraform, que recibe un archivo EDF y devuelve el hipnograma estimado."
 )
 para("**Palabras clave:** estadificación del sueño, electroencefalografía, gradient boosting, "
      "contexto temporal, despliegue en la nube.", after=8)
@@ -451,6 +449,16 @@ para(
     "frente a 0,583 de Random Forest; por su bajo desempeño y su costo se priorizaron las redes "
     "recurrentes sobre características."
 )
+para(
+    "Para clasificar registros sin anotaciones se incorporó **FullNightNet**, una red "
+    "convolucional que recibe la señal completa de la noche: codifica cada época de EEG y EOG con "
+    "dos convoluciones 1D y la envolvente del EMG con una capa densa, fusiona los cuatro canales "
+    "(24 unidades) y modela la secuencia con convoluciones temporales. El **modelo híbrido** "
+    "añade sus cinco probabilidades por estadio, renormalizadas, a las 435 variables de LightGBM "
+    "(440 entradas) y conserva los hiperparámetros, la semilla y el número de iteraciones del "
+    "LightGBM correspondiente. Para evitar fuga, las probabilidades con que se entrena el híbrido "
+    "provienen de redes que no vieron al participante evaluado ni a su fold externo."
+)
 table(
     "Configuración de los modelos evaluados.",
     ["Modelo", "Entrada", "Configuración principal"],
@@ -468,6 +476,11 @@ table(
                                                   "Conv1d 32 filtros (kernel 9) → AdaptiveAvgPool 6 → "
                                                   "capa lineal; Adam lr 10⁻³, lote 32, hasta 20 épocas "
                                                   "con parada temprana"],
+        ["FullNightNet", "EDF completo, 4 canales",
+         "Conv1d (8 filtros, kernel 50, paso 25) → Conv1d (8, kernel 5) por canal; fusión a 24 "
+         "unidades; convolución temporal; pérdida ponderada; dos pasadas por la señal"],
+        ["Híbrido (desplegado)", "435 + 5 probabilidades",
+         "LightGBM con la configuración final, entrenado con probabilidades fuera de muestra"],
     ],
     widths=[2.8, 3.4, 9.8],
 )
@@ -506,24 +519,24 @@ para(
 h2("3.7. Despliegue")
 para(
     "La solución se desplegó en AWS (región us-west-2) y Vercel, definida completamente con "
-    "Terraform (Figura 1B). El frontend, en React y Vite, se publica en Vercel. Una API sobre "
-    "API Gateway y AWS Lambda (imagen de contenedor) emite formularios firmados para cargar el "
-    "archivo directamente en S3 y garantiza la idempotencia de cada solicitud. Una máquina de "
-    "estados de Step Functions invoca un worker Lambda que verifica el SHA-256 del archivo y del "
-    "modelo, deriva las 290 variables de contexto y genera la predicción con sus cinco "
-    "probabilidades. Los resultados en JSON y CSV quedan en S3 durante siete días."
+    "Terraform (Figura 1B). El frontend, en React y Vite, se publica en Vercel desde la rama "
+    "principal del repositorio. El usuario carga un **archivo EDF** de hasta 128 MiB con los dos "
+    "EEG, el EOG y la envolvente del EMG. Una API sobre API Gateway y AWS Lambda emite formularios "
+    "firmados para subirlo directamente a S3, garantiza la idempotencia de cada solicitud y "
+    "publica su contrato en OpenAPI, con endpoints de salud. Una máquina de estados de Step "
+    "Functions invoca un worker Lambda que verifica el SHA-256 del archivo y de los modelos, "
+    "segmenta la noche, calcula las 435 variables y las probabilidades de FullNightNet y predice "
+    "con el modelo híbrido. Los resultados en JSON y CSV quedan en S3 durante siete días."
 )
 para(
-    "Se eligió una arquitectura sin servidor porque el modelo LightGBM es liviano y su "
-    "inferencia en CPU tarda pocos segundos por noche, de modo que no requiere GPU ni servidores "
-    "encendidos permanentemente: el costo es proporcional al uso y la plataforma escala "
-    "automáticamente con las solicitudes simultáneas. El reentrenamiento se ejecuta bajo demanda en "
-    "una instancia EC2 efímera, registra el experimento en SageMaker MLflow y produce un "
-    "candidato que solo se promueve si reproduce las predicciones de referencia. Cada versión del "
-    "flujo apunta a una versión fija del modelo, lo que permite revertir un cambio. "
-    "En la versión actual, la aplicación recibe una noche ya preparada en formato Parquet, con "
-    "las 145 variables por época y su metadato de procedencia; la carga directa de archivos EDF, "
-    "que exige además detectar el periodo de sueño sin anotaciones, está en desarrollo."
+    "Se eligió una arquitectura sin servidor porque los modelos son livianos (LightGBM y una red "
+    "de 24 unidades) y su inferencia en CPU no requiere GPU ni servidores encendidos "
+    "permanentemente: el costo es proporcional al uso y la plataforma escala con las solicitudes "
+    "simultáneas. El reentrenamiento se ejecuta bajo demanda en una instancia EC2 efímera, "
+    "registra el experimento en MLflow y produce un candidato que solo se promueve si reproduce "
+    "las predicciones de referencia; cada versión del flujo apunta a una versión fija del modelo, "
+    "lo que permite revertir un cambio. Como el entorno usa una cuenta de AWS Academy, la API solo "
+    "responde mientras la sesión del laboratorio está activa."
 )
 
 # 4 ------------------------------------------------------------------------------------------
@@ -618,7 +631,9 @@ para(
     "generalización. Incluso los límites inferiores de los intervalos superan 0,70 en F1 macro "
     "y en kappa. La matriz de confusión (Figura 4) repite el patrón observado en desarrollo: N1 "
     "es el estadio más difícil (recall 0,57) y se confunde sobre todo con N2 (27 %) y W (10 %); "
-    "21 % de las épocas N3 se clasifican como N2."
+    "21 % de las épocas N3 se clasifican como N2. Una evaluación independiente del archivo "
+    "publicado en producción sobre las mismas 43.417 épocas produjo métricas idénticas, lo que "
+    "confirma que el procedimiento de reentrenamiento reproduce el modelo desplegado."
 )
 figure(ROOT / "docs/articulo/figura_confusion_prueba.png",
        "Matriz de confusión en el conjunto de prueba (16 sujetos, 43.417 épocas), en conteos y "
@@ -639,11 +654,42 @@ figure(ROOT / "docs/articulo/figura_hipnograma.png",
        "Hipnograma de referencia (arriba) y predicho (abajo) para la noche de prueba SC4771; los "
        "puntos marcan las épocas en desacuerdo.", width_cm=16.0)
 
-h2("4.4. Desempeño del servicio desplegado")
+h2("4.4. Modelo híbrido y registro completo")
+para(
+    "Para la aplicación se evaluó además la clasificación del **EDF completo**, sin usar el "
+    "hipnograma para recortar la vigilia: se predicen todas las épocas y las anotaciones solo "
+    "intervienen al puntuar (83.875 épocas de prueba). La Tabla 8 compara LightGBM, FullNightNet "
+    "y el híbrido sobre los mismos 16 sujetos."
+)
+table(
+    "Comparación en prueba con el recorte histórico (W30) y con el EDF completo.",
+    ["Modelo", "Desarrollo W30 (F1)", "Prueba W30: F1 / κ", "EDF completo: F1 / κ", "F1 N1 (EDF)"],
+    [
+        ["LightGBM", "0,789", "0,788 / 0,768", "0,763 / 0,784", "0,453"],
+        ["FullNightNet", "0,626", "0,684 / 0,654", "0,698 / 0,739", "0,403"],
+        ["Híbrido (desplegado)", "0,794", "0,797 / 0,778", "0,781 / 0,808", "0,484"],
+    ],
+    widths=[3.6, 3.0, 3.2, 3.4, 2.8],
+    bold_rows=(2,),
+    note="Desarrollo: media de cinco folds. En el EDF completo la exactitud del híbrido fue 0,903, "
+         "elevada por la mayor proporción de vigilia. Fuente: campañas del equipo registradas en MLflow.",
+)
+para(
+    "FullNightNet por sí sola rinde menos que LightGBM, pero sus probabilidades aportan "
+    "información complementaria: el híbrido mejoró el F1 macro en 0,92 puntos en W30 (IC 95 % de "
+    "+0,35 a +1,54) y en 1,76 puntos en el EDF completo (+0,91 a +2,67), con la mayor ganancia en "
+    "N1 (+3,11 puntos). Clasificar la noche completa reduce el F1 macro porque aparecen épocas de "
+    "vigilia y transiciones fuera del periodo anotado, pero el híbrido conserva 0,781 de F1 macro y "
+    "0,808 de kappa sin ninguna información del experto. Por eso es el modelo que sirve la "
+    "aplicación."
+)
+
+h2("4.5. Desempeño del servicio desplegado")
 para(
     "El 18 de noviembre de 2026 se verificó el flujo completo con la noche pública SC4001 "
     "(841 épocas). Las clases y las cinco probabilidades coincidieron con la referencia local "
-    "(diferencia máxima de 5,6·10⁻¹⁶). La Tabla 8 resume los tiempos medidos."
+    "(diferencia máxima de 5,6·10⁻¹⁶). La Tabla 9 resume los tiempos medidos con el primer modelo "
+    "desplegado; desde el 20 de noviembre la aplicación procesa EDF con el híbrido."
 )
 table(
     "Tiempos del servicio desplegado.",
@@ -665,12 +711,13 @@ para(
     "hipnograma. Los tres se cumplen: en el conjunto de prueba el modelo alcanza un F1 macro de "
     "0,788 y un kappa de 0,768, con intervalos cuyo límite inferior también supera 0,70; supera "
     "ampliamente a la línea base de Random Forest (0,655 de F1 macro con las mismas particiones "
-    "en desarrollo) y al clasificador mayoritario; y el servicio responde en menos de dos "
-    "segundos por noche."
+    "en desarrollo) y al clasificador mayoritario; y el servicio procesa una noche en segundos y "
+    "presenta el hipnograma. Además, el híbrido desplegado mantiene un F1 macro de 0,781 y un "
+    "kappa de 0,808 al clasificar el EDF completo, sin anotaciones."
 )
 para(
     "**Comparación con la literatura.** El F1 macro de 0,788 y el kappa de 0,768 en prueba están en "
-    "el rango de los modelos profundos publicados para Sleep-EDF-78 (Tabla 9). La comparación es "
+    "el rango de los modelos profundos publicados para Sleep-EDF-78 (Tabla 10). La comparación es "
     "orientativa: este trabajo usa cuatro señales y no solo Fpz-Cz, valida con cinco folds por "
     "sujeto y conserva 30 minutos de vigilia, condiciones que no coinciden exactamente con las de "
     "cada referencia."
@@ -685,9 +732,10 @@ table(
         ["AttnSleep [16], 3 épocas", "Fpz-Cz", "0,829", "0,781", "0,77"],
         ["Este trabajo · CV (LightGBM ajustado)", "EEG ×2, EOG, EMG", "0,830", "0,789", "0,769"],
         ["Este trabajo · prueba (16 sujetos)", "EEG ×2, EOG, EMG", "0,834", "0,788", "0,768"],
+        ["Este trabajo · híbrido, prueba", "EEG ×2, EOG, EMG", "0,841", "0,797", "0,778"],
     ],
     widths=[5.8, 3.3, 2.3, 2.3, 2.3],
-    bold_rows=(4, 5),
+    bold_rows=(4, 5, 6),
     note="Cifras de [16], Tablas V y VI: validación cruzada de 20 folds por sujeto. Este trabajo usa "
          "cinco folds por sujeto y cuatro señales, por lo que la comparación es orientativa.",
 )
@@ -701,14 +749,15 @@ para(
     "entrenadas con las mismas particiones."
 )
 para(
-    "**Limitaciones.** Primero, el recorte de vigilia usa el hipnograma de referencia para "
-    "ubicar el inicio y el fin del sueño; en un registro nuevo sin anotaciones esa información no "
-    "existe, por lo que el desempeño reportado corresponde a un protocolo de recorte supervisado. "
-    "Segundo, N1 conserva un F1 cercano a 0,52. Tercero, la clase de movimiento (M), prevista en "
-    "la propuesta, tiene solo 128 épocas y no se modeló como objetivo. Cuarto, todos los sujetos "
-    "son de una sola cohorte de sujetos sanos; la generalización a pacientes o a otros equipos de "
-    "adquisición no está demostrada. Quinto, la selección se basa en una sola semilla y una sola "
-    "partición interna por fold."
+    "**Limitaciones.** Primero, el protocolo principal recorta la vigilia con el hipnograma de "
+    "referencia; la evaluación del EDF completo elimina esa dependencia en la aplicación, a costa "
+    "de unos dos puntos de F1 macro. Segundo, el híbrido se seleccionó cuando el conjunto de "
+    "prueba ya se había usado para evaluar LightGBM, por lo que su mejora debe confirmarse en una "
+    "cohorte independiente; el resultado preestablecido del proyecto es el de LightGBM. Tercero, "
+    "N1 conserva un F1 cercano a 0,52. Cuarto, la clase de movimiento (M) tiene solo 128 épocas y "
+    "no forma parte de la tarea principal. Quinto, todos los sujetos son sanos y de una sola "
+    "cohorte: experimentos complementarios del equipo en Sleep Telemetry, con otra adquisición, "
+    "muestran una caída del desempeño. Sexto, cada ajuste usa una sola semilla."
 )
 para(
     "**Aplicaciones.** La solución puede servir como herramienta de apoyo a la puntuación: "
@@ -727,8 +776,10 @@ para(
     "validación cruzada (0,789 y 0,769). La fusión de EEG, EOG y EMG y el "
     "contexto temporal fueron los factores decisivos: juntos elevaron el F1 macro en 0,13 "
     "puntos respecto de la línea base. Un modelo LightGBM ajustado igualó a las redes "
-    "recurrentes con un costo de inferencia mucho menor, lo que facilitó un despliegue sin "
-    "servidor que responde en segundos y se reproduce con infraestructura como código."
+    "recurrentes con un costo de inferencia mucho menor. Al sumarle las probabilidades de una "
+    "red aplicada a la señal completa, el modelo híbrido clasifica un EDF sin anotaciones con un "
+    "F1 macro de 0,781, lo que permitió desplegar una aplicación sin servidor que recibe el "
+    "archivo original y se reproduce con infraestructura como código."
 )
 para(
     "Entre las lecciones aprendidas se destacan la importancia de fijar la partición por sujeto "
@@ -737,8 +788,7 @@ para(
 )
 para("Como trabajo futuro se proponen:")
 bullets([
-    "Reemplazar el recorte de vigilia supervisado por una detección automática del periodo de "
-    "sueño, para clasificar archivos EDF sin anotaciones.",
+    "Confirmar la mejora del modelo híbrido en una cohorte independiente con canales compatibles.",
     "Mejorar N1 con modelos secuenciales de mayor alcance, como transformers sobre las "
     "características, o con un suavizado de la secuencia de predicciones (modelo oculto de Markov).",
     "Evaluar la clasificación en seis clases incluyendo movimiento, y validar en Sleep Telemetry "

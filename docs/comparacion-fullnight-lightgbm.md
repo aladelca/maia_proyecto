@@ -1,6 +1,6 @@
 # FullNightNet como entrada del LightGBM publicado
 
-En las noches reservadas de Sleep Cassette, añadir las cinco probabilidades de etapa de FullNightNet al LightGBM elevó el F1 macro de 0,7879 a 0,7970 con el protocolo histórico W30 y de 0,7630 a 0,7806 al puntuar el EDF completo. FullNightNet por sí solo obtuvo puntuaciones inferiores a las de LightGBM. La comparación evalúa los mismos pacientes, canales, etiquetas y épocas dentro de cada columna. [Notebook ejecutado](../notebook/20261120-1342-fullnight-lightgbm-w30.ipynb)
+En las noches reservadas de Sleep Cassette, añadir las cinco probabilidades de etapa de FullNightNet al LightGBM elevó el F1 macro de 0,7879 a 0,7970 con el protocolo histórico W30 y de 0,7630 a 0,7806 al puntuar el EDF completo. FullNightNet por sí solo obtuvo puntuaciones inferiores a las de LightGBM. La comparación evalúa los mismos pacientes, canales, etiquetas y épocas dentro de cada columna. [Notebook ejecutado](../notebooks/20261120-1342-fullnight-lightgbm-w30.ipynb)
 
 | Modelo | Desarrollo W30, F1 macro medio ± DE | Prueba W30, F1 macro | Prueba W30, F1 N1 | EDF completo, F1 macro | EDF completo, F1 N1 |
 | --- | ---: | ---: | ---: | ---: | ---: |

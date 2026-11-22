@@ -5,9 +5,9 @@ El clasificador híbrido combina 435 características del EDF con cinco probabil
 ## Referencia histórica de LightGBM
 
 
-Esta carpeta documenta el modelo final que usa la aplicación desplegada y cómo obtenerlo o reconstruirlo. Los binarios no se versionan en Git: el modelo se publica en un bucket S3 versionado y cada versión queda identificada por su SHA-256.
+El LightGBM base fue el primer modelo desplegado (hasta el 20 de noviembre de 2026) y es la base del híbrido actual. Su archivo no se versiona en Git: se publica en un bucket S3 versionado y cada versión queda identificada por su SHA-256.
 
-## Modelo en producción
+## LightGBM base
 
 | Atributo | Valor |
 | --- | --- |
@@ -19,11 +19,12 @@ Esta carpeta documenta el modelo final que usa la aplicación desplegada y cómo
 | Desempeño (validación cruzada, 5 folds por sujeto) | F1 macro 0,7893 ± 0,0179 · exactitud 0,8300 · kappa 0,7691 |
 | Versión publicada | `lgbm-49f74e944ce5457b` (los 16 caracteres corresponden al inicio del SHA-256 del archivo) |
 | Archivos | `model.joblib` (pipeline serializado) y `manifest.json` (columnas, clases, procedencia, hashes y versiones) |
-| Tamaño en disco | [PENDIENTE: confirmar con `ls -lh var/cloud/bundle/model.joblib`] |
+| Tamaño en disco | 9,3 MB (reconstrucción local con predicciones idénticas a la versión publicada) |
+| Desempeño en prueba (16 sujetos, W30) | F1 macro 0,788 · exactitud 0,834 · kappa 0,768 ([evaluación única](../scripts/evaluate_test.py)) |
 
 ## Requerimientos de hardware y tiempos
 
-- La inferencia corre en CPU; no requiere GPU. En AWS se ejecuta en una función Lambda con 3.072 MB de memoria, un límite de 120 s y dos hilos de OpenMP.
+- La inferencia corre en CPU; no requiere GPU. En AWS se ejecuta en una función Lambda con 3.072 MB de memoria, un límite de 300 s y dos hilos de OpenMP.
 - Una noche de 841 épocas se resuelve en 1,83 s con el servicio activo. Con cinco solicitudes simultáneas, el percentil 95 del tiempo total fue de 6,51 s.
 - El worker descarga el modelo una vez por contenedor y verifica su SHA-256 antes de cargarlo. Las invocaciones siguientes reutilizan el modelo en memoria (carga diferida).
 - El reentrenamiento completo con 261 árboles tarda unos 5 minutos en una instancia `m5.xlarge`.
@@ -41,7 +42,7 @@ sha256sum modelos/model.joblib   # debe coincidir con objects.model.sha256
 
 El procedimiento para restaurar `deploy.auto.tfvars.json` está en [docs/cloud-operations.md](../docs/cloud-operations.md#restaurar-y-automatizar-la-entrega).
 
-[PENDIENTE: publicar `model.joblib` y `manifest.json` en un enlace de descarga público (por ejemplo, un release de GitHub) para evaluadores sin credenciales de AWS.]
+Para evaluadores sin credenciales de AWS, el modelo desplegado (el híbrido) está versionado directamente en [stack_five/](stack_five/README.md); este LightGBM base se reconstruye con la Opción 2 o con `scripts/evaluate_test.py`.
 
 ## Opción 2. Reconstruir el modelo localmente
 

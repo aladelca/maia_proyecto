@@ -63,24 +63,29 @@ p("Enlaces", bold=True)
 item("Repositorio en GitHub", REPO)
 item("Aplicación desplegada", APP)
 item("Guía de despliegue y operación", f"{REPO}/blob/main/docs/cloud-operations.md")
-item("Ficha e instrucciones del modelo", f"{REPO}/blob/main/modelos/README.md")
+item("Ficha e instrucciones del modelo", f"{REPO}/blob/main/modelos/stack_five/README.md")
 
 p("Acceso", bold=True)
-p("La aplicación es pública y no requiere credenciales. Para probarla basta con abrir el "
-  "enlace y seleccionar «Probar ejemplo público», que procesa una noche real del conjunto "
-  "Sleep-EDF y muestra el hipnograma, el tiempo en cada estadio y un CSV descargable con la "
-  "predicción y las probabilidades por época. Cada pestaña del navegador recibe una clave de "
-  "invitado aleatoria, de modo que cada visitante solo ve sus propios resultados.")
+p("La aplicación es pública y no requiere credenciales. El usuario carga un archivo EDF de "
+  "polisomnografía (dos EEG, EOG y envolvente EMG, hasta 128 MiB) y obtiene el hipnograma, el "
+  "tiempo en cada estadio y un CSV con la predicción y las probabilidades por época. Sin archivo "
+  "propio, «Probar ejemplo público» procesa diez minutos de señal en el servidor y «Explorar modo "
+  "demo» muestra un ejemplo local. Cada pestaña del navegador recibe una clave de invitado "
+  "aleatoria, de modo que cada visitante solo ve sus propios resultados. La API documenta su "
+  "contrato en https://9u8vgivsce.execute-api.us-west-2.amazonaws.com/docs.")
+p("La infraestructura corre en una cuenta de AWS Academy: el equipo encenderá el laboratorio a la "
+  "hora asignada para la evaluación.")
 p("El repositorio es público y puede consultarse sin iniciar sesión en GitHub.")
 
 p("Resumen de la solución desplegada", bold=True)
-p("El modelo final es un LightGBM ajustado que clasifica cada época de 30 segundos en cinco "
-  "estadios (W, N1, N2, N3 y REM) a partir de 435 variables de EEG, EOG y EMG con contexto "
-  "temporal. En validación cruzada por sujeto obtuvo un F1 macro de 0,789 y un kappa de 0,769. "
-  "Se despliega sin servidor: el frontend React está en Vercel y la API, la orquestación y la "
-  "inferencia en AWS (API Gateway, Lambda, Step Functions y S3), con toda la infraestructura "
-  "definida en Terraform. El modelo corre en CPU, se carga una vez por contenedor tras verificar "
-  "su SHA-256 y procesa una noche completa en menos de dos segundos.")
+p("El modelo desplegado es un híbrido: un LightGBM que recibe 435 variables de EEG, EOG y EMG "
+  "con contexto temporal y las cinco probabilidades por estadio de FullNightNet, una red "
+  "convolucional que lee la noche completa. En los 16 sujetos de prueba clasificó el EDF completo, "
+  "sin anotaciones, con un F1 macro de 0,781 y un kappa de 0,808; el LightGBM base obtuvo un F1 "
+  "macro de 0,788 con el recorte de vigilia del protocolo. Se despliega sin servidor: el frontend "
+  "React está en Vercel y la API, la orquestación y la inferencia en AWS (API Gateway, Lambda, "
+  "Step Functions y S3), con toda la infraestructura definida en Terraform. Los modelos corren en "
+  "CPU, se verifican por SHA-256 y se cargan una vez por contenedor.")
 
 doc.save(OUT)
 print(OUT)

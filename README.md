@@ -29,12 +29,13 @@ La API REST (`/public/v1`), sus endpoints de salud (`/health`, `/health/ready`) 
 
 ## Consideraciones del modelo
 
-- **Tamaño y hardware:** el modelo final es un LightGBM de 261 iteraciones que corre en CPU y no necesita GPU. El worker usa 3.072 MB de memoria y dos hilos.
-- **Tiempos:** una noche de 841 épocas se procesa en 1,83 s. Con cinco noches simultáneas, el percentil 95 del tiempo total fue de 6,51 s.
-- **Carga diferida:** el worker descarga el modelo una vez por contenedor, verifica su SHA-256 y lo reutiliza en las invocaciones siguientes.
+- **Tamaño y hardware:** el modelo desplegado es un híbrido: un LightGBM de 261 iteraciones (`stack_five.joblib`, 4,4 MB) que recibe las 435 variables y las 5 probabilidades de FullNightNet (`six_direct.pt`, 51 KB). Ambos corren en CPU, sin GPU. El worker usa 3.072 MB de memoria y un límite de 300 s.
+- **Tiempos:** con la primera versión (LightGBM sobre Parquet), una noche de 841 épocas se procesó en 1,83 s y cinco noches simultáneas en 6,51 s (p95). Con EDF, una noche completa de 2.786 épocas tardó 48,4 s en frío (carga de PyTorch y del modelo) y 2,1 s en caliente.
+- **Carga diferida:** el worker carga los modelos una vez por contenedor, verifica su SHA-256 y los reutiliza en las invocaciones siguientes.
 - **Escalabilidad:** Lambda escala de forma automática con las solicitudes y el costo es proporcional al uso. No hay servidores encendidos de forma permanente.
-- **Artefactos:** el modelo no se versiona en Git. [modelos/README.md](modelos/README.md) explica cómo descargarlo, reconstruirlo o reentrenarlo.
-- **Limitaciones:** el recorte de vigilia de ±30 minutos usa las anotaciones de referencia. Por eso el desempeño corresponde a un análisis retrospectivo de noches preparadas, y la evaluación sobre los 16 sujetos de prueba sigue pendiente.
+- **Artefactos:** los pesos del híbrido están versionados en [modelos/stack_five/](modelos/stack_five/README.md). [modelos/README.md](modelos/README.md) explica cómo reconstruir o reentrenar los modelos.
+- **Desempeño en los 16 sujetos de prueba:** EDF completo, F1 macro 0,781 y kappa 0,808. Con el recorte histórico W30, F1 macro 0,797. El LightGBM base obtuvo 0,788 en W30 ([evaluación única](scripts/evaluate_test.py)).
+- **Disponibilidad:** la infraestructura corre en una cuenta de AWS Academy. Si `/health` responde 500, la sesión del laboratorio está apagada y hay que iniciarla antes de usar la aplicación.
 
 ## Parametrización
 
