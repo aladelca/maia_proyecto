@@ -1,8 +1,9 @@
-"""The HTTP adapter derives ownership from trusted JWT claims for each request."""
+"""Exercise authenticated and guest ownership through the HTTP adapter."""
 
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 from unittest.mock import Mock
 from uuid import uuid4
@@ -104,6 +105,77 @@ def test_validation_precedes_signing(monkeypatch):
     ] in s3.generate_presigned_post.call_args.kwargs["Conditions"]
 
 
+def test_unconfigured_edf_release_returns_before_upload_or_execution(monkeypatch):
+    monkeypatch.setenv("EDF_ENABLED", "0")
+    client = Mock()
+    monkeypatch.setattr(api, "client", client)
+    body = {"format": "edf", "size": 123, "sha256": "a" * 64}
+    assert invoke("POST", "/v1/uploads", "p", body)["statusCode"] == 503
+    assert (
+        invoke("POST", "/v1/predictions", "p", body, {"Idempotency-Key": uuid4().hex})[
+            "statusCode"
+        ]
+        == 503
+    )
+    client.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("root", "subject", "identity"),
+    [("/v1", "person", {}), ("/public/v1", None, {"X-Guest-Token": "a" * 64})],
+)
+def test_edf_upload_and_selected_profile_are_bound_to_job(
+    monkeypatch, root, subject, identity
+):
+    s3, states = Mock(), Mock()
+    monkeypatch.setenv("EDF_ENABLED", "1")
+    monkeypatch.setattr(api, "client", lambda name: s3 if name == "s3" else states)
+    monkeypatch.setenv("JOBS_BUCKET", "jobs")
+    monkeypatch.setenv("MACHINE_ARN", "arn:example")
+    s3.generate_presigned_post.return_value = {
+        "url": "https://s3.example",
+        "fields": {},
+    }
+    uploaded = invoke(
+        "POST",
+        root + "/uploads",
+        subject,
+        {"format": "edf", "size": 52_000_000, "sha256": "a" * 64},
+        identity,
+    )
+    assert uploaded["statusCode"] == 201
+    uid = json.loads(uploaded["body"])["upload_id"]
+    args = s3.generate_presigned_post.call_args.kwargs
+    assert args["Key"].endswith(uid + ".edf")
+    s3.head_object.return_value = {
+        "ContentLength": 52_000_000,
+        "Metadata": {"sha256": "a" * 64},
+    }
+    body = {
+        "format": "edf",
+        "profile": "eeg_pz_oz",
+        "upload_id": uid,
+        "version_id": "version",
+    }
+    headers = {**identity, "Idempotency-Key": uuid4().hex}
+    assert (
+        invoke("POST", root + "/predictions", subject, body, headers)["statusCode"]
+        == 202
+    )
+    event = json.loads(states.start_execution.call_args.kwargs["input"])
+    assert (
+        event["profile"] == "eeg_pz_oz"
+        and event["format"] == "edf"
+        and event["input_key"] == args["Key"]
+    )
+    assert (
+        invoke(
+            "POST", root + "/predictions", subject, {**body, "profile": "emg"}, headers
+        )["statusCode"]
+        == 400
+    )
+
+
 def test_anonymous_visitors_have_separate_jobs_and_upload_prefixes(monkeypatch):
     visitors = [{"X-Guest-Token": char * 64} for char in "ab"]
     states = Mock()
@@ -171,3 +243,248 @@ def test_anonymous_visitors_have_separate_jobs_and_upload_prefixes(monkeypatch):
         owners.append(s3.generate_presigned_post.call_args.kwargs["Key"].split("/")[1])
     assert owners[0] != owners[1]
     assert name == owners[0] + "-" + job
+
+
+@pytest.mark.parametrize("public", [False, True])
+def test_lightgbm_edf_is_independent_and_part_of_job_identity(monkeypatch, public):
+    monkeypatch.setenv("EDF_ENABLED", "0")
+    monkeypatch.setenv("EDF_LGBM_ENABLED", "1")
+    monkeypatch.setenv("JOBS_BUCKET", "jobs")
+    monkeypatch.setenv("MACHINE_ARN", "arn:example")
+    root = "/public/v1" if public else "/v1"
+    subject = None if public else "subject"
+    headers = {"Idempotency-Key": uuid4().hex, "X-Guest-Token": "b" * 64}
+    s3, states = Mock(), Mock()
+    monkeypatch.setattr(api, "client", lambda name: s3 if name == "s3" else states)
+    s3.generate_presigned_post.return_value = {
+        "fields": {},
+        "url": "https://example.test",
+    }
+    model = {"format": "edf", "model": "lightgbm"}
+    upload = {**model, "size": 512, "sha256": "a" * 64}
+    for invalid in [
+        {"model": "other"},
+        {"model": []},
+        {"profile": "eeg_pz_oz"},
+        {"format": "parquet", "model": "fullnight"},
+    ]:
+        assert (
+            invoke("POST", root + "/uploads", subject, {**upload, **invalid}, headers)[
+                "statusCode"
+            ]
+            == 400
+        )
+    assert not s3.generate_presigned_post.called
+    assert (
+        invoke("POST", root + "/uploads", subject, upload, headers)["statusCode"] == 201
+    )
+    s3.head_object.return_value = {
+        "ContentLength": 512,
+        "Metadata": {"sha256": "a" * 64},
+    }
+    request = {**model, "upload_id": uuid4().hex, "version_id": "v1"}
+    assert (
+        invoke("POST", root + "/predictions", subject, request, headers)["statusCode"]
+        == 202
+    )
+    payload = states.start_execution.call_args.kwargs["input"]
+    assert json.loads(payload)["model"] == "lightgbm"
+    states.start_execution.side_effect = ClientError(
+        {"Error": {"Code": "ExecutionAlreadyExists"}}, "StartExecution"
+    )
+    states.describe_execution.return_value = {"input": payload}
+    assert (
+        invoke("POST", root + "/predictions", subject, request, headers)["statusCode"]
+        == 202
+    )
+    monkeypatch.setenv("EDF_ENABLED", "1")
+    assert (
+        invoke(
+            "POST",
+            root + "/predictions",
+            subject,
+            {**request, "model": "fullnight"},
+            headers,
+        )["statusCode"]
+        == 409
+    )
+    monkeypatch.setenv("EDF_LGBM_ENABLED", "0")
+    assert (
+        invoke("POST", root + "/uploads", subject, upload, headers)["statusCode"] == 503
+    )
+
+
+def test_active_stack_accepts_only_edf_and_binds_published_example(monkeypatch):
+    from sleep_staging.stack_release import EXAMPLE_SHA256, MODEL, VERSION
+
+    monkeypatch.setenv("ACTIVE_EDF_MODEL", MODEL)
+    monkeypatch.setenv("MACHINE_ARN", "arn:aws:states:us-west-2:123:stateMachine:maia")
+    monkeypatch.setenv("JOBS_BUCKET", "jobs")
+    aws = Mock()
+    monkeypatch.setattr(api, "client", lambda _: aws)
+    aws.generate_presigned_post.return_value = {
+        "url": "https://example.org",
+        "fields": {},
+    }
+    aws.head_object.return_value = {
+        "ContentLength": 32,
+        "Metadata": {"sha256": "a" * 64},
+    }
+    http = api.app.test_client()
+    guest = {"X-Guest-Token": "a" * 64}
+    assert http.get("/public/v1/examples/default").json["model_version"] == VERSION
+    upload = {"size": 32, "sha256": "a" * 64}
+    for bad in [
+        {},
+        {"format": "parquet"},
+        {"format": "edf", "model": "fullnight"},
+        {"format": "edf", "model": "lightgbm"},
+        {"format": "edf", "profile": "eeg_fpz_cz"},
+    ]:
+        assert (
+            http.post(
+                "/public/v1/uploads", json={**upload, **bad}, headers=guest
+            ).status_code
+            == 400
+        )
+    aws.generate_presigned_post.assert_not_called()
+    signed = http.post(
+        "/public/v1/uploads",
+        json={**upload, "format": "edf", "model": MODEL},
+        headers=guest,
+    )
+    assert signed.status_code == 201
+    for body in [
+        {"example": "default", "model": MODEL},
+        {"format": "edf", "upload_id": signed.json["upload_id"], "version_id": "v1"},
+    ]:
+        response = http.post(
+            "/public/v1/predictions",
+            json=body,
+            headers={**guest, "Idempotency-Key": str(uuid4())},
+        )
+        assert response.status_code == 202
+        payload = json.loads(aws.start_execution.call_args.kwargs["input"])
+        assert payload["model"] == MODEL and payload["format"] == "edf"
+        if "example" in body:
+            assert (
+                payload["sha256"] == EXAMPLE_SHA256
+                and payload["input_version"] == VERSION
+            )
+
+
+def test_health_is_public_and_never_calls_aws(monkeypatch):
+    client = Mock()
+    monkeypatch.setattr(api, "client", client)
+    monkeypatch.setenv("API_VERSION", "8fc1e91474f6")
+    monkeypatch.setenv("EDF_ENABLED", "1")
+    monkeypatch.setenv("EDF_LGBM_ENABLED", "0")
+    monkeypatch.delenv("ACTIVE_EDF_MODEL", raising=False)
+    reply = invoke("GET", "/health")
+    assert reply["statusCode"] == 200
+    assert json.loads(reply["body"]) == {
+        "status": "ok",
+        "service": "maia-sleep-api",
+        "version": "8fc1e91474f6",
+        "features": {
+            "parquet": True,
+            "edf_fullnight": True,
+            "edf_lightgbm": False,
+            "edf_stack_five": False,
+        },
+    }
+    monkeypatch.setenv("ACTIVE_EDF_MODEL", "stack_five")
+    assert json.loads(invoke("GET", "/health")["body"])["features"] == {
+        "parquet": False,
+        "edf_fullnight": False,
+        "edf_lightgbm": False,
+        "edf_stack_five": True,
+    }
+    client.assert_not_called()
+
+
+def test_readiness_reports_each_dependency_without_aws_details(monkeypatch):
+    for key, value in {
+        "AWS_REGION": "us-west-2",
+        "JOBS_BUCKET": "jobs",
+        "MACHINE_ARN": "arn:aws:states:us-west-2:111111111111:stateMachine:demo",
+        "EXAMPLE_KEY": "example",
+        "EXAMPLE_VERSION": "1",
+        "EXAMPLE_SHA256": "a" * 64,
+    }.items():
+        monkeypatch.setenv(key, value)
+    s3, states = Mock(), Mock()
+    monkeypatch.setattr(api, "client", lambda name: s3 if name == "s3" else states)
+    s3.get_bucket_versioning.return_value = {"Status": "Enabled"}
+    reply = invoke("GET", "/health/ready")
+    assert reply["statusCode"] == 200
+    assert json.loads(reply["body"]) == {
+        "status": "ready",
+        "checks": {"config": "ok", "storage": "ok", "workflow": "ok"},
+    }
+    assert s3.get_bucket_versioning.call_args.kwargs == {"Bucket": "jobs"}
+    alias = states.describe_state_machine_alias.call_args.kwargs
+    assert alias["stateMachineAliasArn"].endswith(":stateMachine:demo:live")
+
+    s3.get_bucket_versioning.return_value = {"Status": "Suspended"}
+    states.describe_state_machine_alias.side_effect = ClientError(
+        {"Error": {"Code": "AccessDeniedException", "Message": "secret detail"}},
+        "DescribeStateMachineAlias",
+    )
+    reply = invoke("GET", "/health/ready")
+    assert reply["statusCode"] == 503
+    assert json.loads(reply["body"])["checks"] == {
+        "config": "ok",
+        "storage": "error",
+        "workflow": "error",
+    }
+    assert "AccessDenied" not in reply["body"] and "secret" not in reply["body"]
+
+    monkeypatch.delenv("MACHINE_ARN")
+    s3.reset_mock()
+    reply = invoke("GET", "/health/ready")
+    assert reply["statusCode"] == 503
+    assert json.loads(reply["body"])["checks"] == {
+        "config": "error",
+        "storage": "skipped",
+        "workflow": "skipped",
+    }
+    assert not s3.get_bucket_versioning.called
+
+
+def test_documentation_is_served_with_its_content_type():
+    spec = invoke("GET", "/openapi.json")
+    assert spec["statusCode"] == 200
+    assert spec["headers"]["content-type"] == "application/json"
+    assert json.loads(spec["body"]) == json.loads(api.SPEC.read_text())
+    docs = invoke("GET", "/docs")
+    assert docs["statusCode"] == 200
+    assert docs["headers"]["content-type"].startswith("text/html")
+    assert 'url: "openapi.json"' in docs["body"]
+
+
+def test_flask_openapi_and_gateway_declare_the_same_routes():
+    """A route missing from API Gateway answers 404 in AWS even if Flask serves it."""
+    flask = {
+        (method, re.sub(r"<(\w+)>", r"{\1}", rule.rule))
+        for rule in api.app.url_map.iter_rules()
+        if rule.endpoint != "static"
+        for method in rule.methods - {"HEAD", "OPTIONS"}
+    }
+    spec = json.loads(api.SPEC.read_text())
+    documented = {
+        (method.upper(), path)
+        for path, operations in spec["paths"].items()
+        for method in operations
+    }
+    terraform = (Path(__file__).resolve().parents[2] / "infra/aws/main.tf").read_text()
+    declared = {
+        tuple(key.split(" ", 1))
+        for key in re.findall(r'"((?:GET|POST) /[^"]*)"', terraform)
+    }
+    declared |= {
+        (method, path.replace("/v1/", "/public/v1/", 1))
+        for method, path in declared
+        if path.startswith("/v1/")
+    }
+    assert flask == documented == declared

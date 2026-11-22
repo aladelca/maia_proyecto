@@ -7,10 +7,7 @@ phases:
     commands:
       - mkdir -p var/cloud
       - cp "$CODEBUILD_SRC_DIR_images"/var/cloud/*-image.txt var/cloud/
-      - cp -R "$CODEBUILD_SRC_DIR_images/frontend/dist" frontend/dist
-      - for stack in aws vercel training; do infra/scripts/init.sh "$stack" && aws s3 cp "s3://$RESEARCH_BUCKET/delivery/config/$stack.json" "infra/$stack/deploy.auto.tfvars.json" || exit 1; done
+      - for stack in aws training; do infra/scripts/init.sh "$stack" && aws s3 cp "s3://$RESEARCH_BUCKET/delivery/config/$stack.json" "infra/$stack/deploy.auto.tfvars.json" || exit 1; done
       - python3 ci/set-images.py
       - terraform -chdir=infra/training apply -input=false -auto-approve
       - terraform -chdir=infra/aws apply -input=false -auto-approve
-      - terraform -chdir=infra/aws output -json public_config > frontend/dist/config.json
-      - terraform -chdir=infra/vercel apply -input=false -auto-approve -var=publish=true

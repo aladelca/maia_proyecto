@@ -59,11 +59,27 @@ def publish_bundle(s3: Any, bucket: str, bundle: Path, m: dict) -> dict:
     return pointers
 
 
-def publish(bundle: Path, output: Path) -> None:
+def publish(bundle: Path, output: Path, edf_run: Path | None = None) -> None:
     s3 = boto3.client("s3")
     buckets = platform_outputs()["buckets"]
     m = json.loads((bundle / "manifest.json").read_text())
+    edf_model = None
+    if edf_run is not None:
+        freeze = json.loads((edf_run / "freeze.json").read_text())
+        name = freeze["edf_model"]
+        if freeze["smoke"] or name not in {"six_direct.pt", "six_movement.pt"}:
+            raise ValueError("Se requiere una campaña EDF completa y congelada.")
+        edf_model = edf_run / "refit" / name
+        if hash_file(edf_model) != freeze["weights"][name]:
+            raise ValueError("Checksum del modelo EDF incompatible.")
     pointers = publish_bundle(s3, buckets["releases"], bundle, m)
+    if edf_model is not None:
+        pointers["edf_model"] = put_verified(
+            s3,
+            buckets["releases"],
+            "releases/ibio-edf/" + hash_file(edf_model) + "/model.pt",
+            edf_model,
+        )
     research = json.loads(Path("var/research/sc-w30-v2/campaign.json").read_text())
     dataset = Path(research["dataset"])
     if hash_file(dataset) != m["dataset_sha256"]:
@@ -87,5 +103,10 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--bundle", type=Path, default=Path("var/cloud/bundle"))
     p.add_argument("--output", type=Path, default=Path("var/cloud/inputs.json"))
+    p.add_argument(
+        "--edf-run",
+        type=Path,
+        help="Campaña completa con freeze.json para habilitar cargas EDF.",
+    )
     a = p.parse_args()
-    publish(a.bundle, a.output)
+    publish(a.bundle, a.output, a.edf_run)

@@ -1,0 +1,210 @@
+[
+  {
+    "cohort": "cassette_test",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "macro_f1",
+    "delta": 0.01231580725086181,
+    "ci95": [
+      0.006463365151324343,
+      0.01821867367002316
+    ],
+    "subjects": 16
+  },
+  {
+    "cohort": "cassette_test",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "n1_f1",
+    "delta": 0.017001018460414463,
+    "ci95": [
+      -0.00023567128995277087,
+      0.03513995459977968
+    ],
+    "subjects": 16
+  },
+  {
+    "cohort": "cassette_test",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "macro_f1",
+    "delta": 0.004801888448382811,
+    "ci95": [
+      -0.0008994567613115666,
+      0.01064901035696683
+    ],
+    "subjects": 16
+  },
+  {
+    "cohort": "cassette_test",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "n1_f1",
+    "delta": 0.029175739394410594,
+    "ci95": [
+      0.01564751283422876,
+      0.04560576897649596
+    ],
+    "subjects": 16
+  },
+  {
+    "cohort": "placebo",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "macro_f1",
+    "delta": 0.04558038588430806,
+    "ci95": [
+      0.031318133865112015,
+      0.05743087331326187
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "placebo",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "n1_f1",
+    "delta": 0.07167196087727856,
+    "ci95": [
+      0.04692846527561195,
+      0.09839538608558623
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "placebo",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "macro_f1",
+    "delta": -0.006881729449595438,
+    "ci95": [
+      -0.02506275198576968,
+      0.009216484364177515
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "placebo",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "n1_f1",
+    "delta": 0.01024283191862424,
+    "ci95": [
+      0.005661687071032326,
+      0.014823064310917528
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "telemetry",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "macro_f1",
+    "delta": 0.03737653385747347,
+    "ci95": [
+      0.024180588895110038,
+      0.048555938366524685
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "telemetry",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "n1_f1",
+    "delta": 0.06553168194187681,
+    "ci95": [
+      0.039808235134433184,
+      0.09115442366975844
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "telemetry",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "macro_f1",
+    "delta": 0.004745491671608715,
+    "ci95": [
+      -0.01670340823962531,
+      0.02279619281990761
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "telemetry",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "n1_f1",
+    "delta": 0.012030948591965324,
+    "ci95": [
+      0.006567148403124961,
+      0.017449524045268432
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "temazepam",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "macro_f1",
+    "delta": 0.029543652615495398,
+    "ci95": [
+      0.01602195924989432,
+      0.04198015332175018
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "temazepam",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog",
+    "candidate": "triple",
+    "reference": "blend",
+    "metric": "n1_f1",
+    "delta": 0.057899454720870935,
+    "ci95": [
+      0.02736401586839203,
+      0.08836924561394133
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "temazepam",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "macro_f1",
+    "delta": 0.01795760759617206,
+    "ci95": [
+      -0.009998512675104078,
+      0.03845367166575587
+    ],
+    "subjects": 22
+  },
+  {
+    "cohort": "temazepam",
+    "profile": "eeg_fpz_cz+eeg_pz_oz+eog+emg",
+    "candidate": "six_movement",
+    "reference": "six_direct",
+    "metric": "n1_f1",
+    "delta": 0.013290083286601334,
+    "ci95": [
+      0.004118005583608183,
+      0.02159993072046274
+    ],
+    "subjects": 22
+  }
+]

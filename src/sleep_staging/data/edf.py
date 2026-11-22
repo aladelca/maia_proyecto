@@ -1,10 +1,14 @@
 """Lectura nativa por canal, sin elevar la frecuencia del EMG envolvente."""
 
+from collections.abc import Collection
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import mne
 import numpy as np
+
+from sleep_staging.sensor_profiles import MAX_EDF_BYTES
 
 ALIASES = {
     "EEG Fpz-Cz": "eeg_fpz_cz",
@@ -48,21 +52,57 @@ def edf_channels(path: Path) -> list[dict]:
     ]
 
 
-def read_recording(
-    psg: Path, hyp: Path
-) -> tuple[dict[str, Signal], list[tuple[float, float, str]], float]:
+def validated_edf_channels(path: Path) -> list[dict]:
+    """Check record sizes and duration before reading untrusted samples."""
+    size = path.stat().st_size
+    if not 256 <= size <= MAX_EDF_BYTES:
+        raise ValueError("EDF vacío, incompleto o de más de 128 MiB.")
+    with path.open("rb") as f:
+        h = f.read(256)
+        if h[:8].strip() != b"0" or b"EDF+D" in h[192:236]:
+            raise ValueError("Se requiere un EDF continuo con muestras de 16 bits.")
+        try:
+            channels = int(h[252:256])
+            header = int(h[184:192])
+            records = int(h[236:244])
+            seconds = float(h[244:252])
+            if (
+                not 1 <= channels <= 128
+                or header != 256 * (channels + 1)
+                or not 0 < seconds <= 3600
+                or records < 1
+            ):
+                raise ValueError()
+            block = f.read(256 * channels)
+            rates = [
+                int(block[216 * channels + 8 * i : 216 * channels + 8 * (i + 1)])
+                for i in range(channels)
+            ]
+            if (
+                min(rates) < 1
+                or size != header + 2 * records * sum(rates)
+                or not 30 <= records * seconds <= 48 * 3600
+            ):
+                raise ValueError()
+        except (ValueError, OverflowError) as e:
+            raise ValueError("Cabecera, duración o tamaño de EDF incompatible.") from e
+    return edf_channels(path)
+
+
+def read_psg(
+    psg: Path, *, channels: Collection[str] | None = None
+) -> tuple[dict[str, Signal], datetime | None, float]:
+    """Read physiological inputs independently of any scoring or hypnogram."""
+    if psg.suffix.lower() != ".edf":
+        raise ValueError("Se requiere una PSG en formato EDF.")
     signals = {}
-    if psg.suffix.lower() != ".edf" or hyp.suffix.lower() != ".edf":
-        raise ValueError(
-            "Este proyecto requiere PSG e hipnograma EDF reales de Sleep-EDFx."
-        )
     original_time = None
     for info in edf_channels(psg):
-        if info["name"] not in ALIASES:
+        canonical = ALIASES.get(info["name"])
+        if canonical is None or (channels is not None and canonical not in channels):
             continue
         if info["unit"] not in {"uV", "µV", "μV", "mV", "V"}:
             raise ValueError(f"Unidad no soportada para {info['name']}: {info['unit']}")
-        canonical = ALIASES[info["name"]]
         raw = mne.io.read_raw_edf(
             psg,
             include=[info["name"]],
@@ -93,6 +133,14 @@ def read_recording(
     eeg = next((s for key, s in signals.items() if key.startswith("eeg")), None)
     if eeg is None:
         raise ValueError(f"No hay un EEG compatible: {psg}")
+    return signals, original_time, len(eeg.values) / eeg.sfreq
+
+
+def read_hypnogram(
+    hyp: Path, original_time: datetime | None
+) -> list[tuple[float, float, str]]:
+    if hyp.suffix.lower() != ".edf":
+        raise ValueError("Se requiere un hipnograma EDF.")
     annotation = mne.read_annotations(hyp)
     shift = (
         (annotation.orig_time - original_time).total_seconds()
@@ -105,4 +153,11 @@ def read_recording(
             annotation.onset, annotation.duration, annotation.description, strict=True
         )
     ]
-    return signals, annotations, len(eeg.values) / eeg.sfreq
+    return annotations
+
+
+def read_recording(
+    psg: Path, hyp: Path
+) -> tuple[dict[str, Signal], list[tuple[float, float, str]], float]:
+    signals, start, duration = read_psg(psg)
+    return signals, read_hypnogram(hyp, start), duration

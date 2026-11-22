@@ -2,7 +2,7 @@
 
 Proyecto de grado de la Maestría en Inteligencia Artificial de la Universidad de los Andes. Integrantes: Carlos Adrián Alarcón Delgado, Andrés Enrique Bautista Pabón y John Janer Buila Ferrin.
 
-**[Abrir la aplicación desplegada](https://maia-sueno-dev-60306.vercel.app)** · [Operación en la nube](docs/cloud-operations.md) · [Modelo final](modelos/README.md) · [Resultados](docs/refinement-results.md) · [Inventario de datos](docs/epoch-inventory.md) · [Dataset Sleep-EDFx](https://physionet.org/content/sleep-edfx/1.0.0/)
+**[Abrir la aplicación desplegada](https://maia-sueno-dev-60306.vercel.app)** · [Operación en la nube](docs/cloud-operations.md) · [Modelo final](modelos/stack_five/README.md) · [Resultados](docs/comparacion-fullnight-lightgbm.md) · [Modelos, predicciones y MLflow de IBIO](output/evidencia/README.md) · [Inventario de datos](docs/epoch-inventory.md) · [Dataset Sleep-EDFx](https://physionet.org/content/sleep-edfx/1.0.0/)
 
 ## Problema y solución
 
@@ -11,8 +11,8 @@ Para estadificar el sueño, un especialista revisa la polisomnografía (EEG, EOG
 Este proyecto entrena un modelo que clasifica cada época en cinco estadios (W, N1, N2, N3 y REM) y lo publica como una aplicación web que muestra el hipnograma de la noche:
 
 1. **Datos:** Sleep Cassette de Sleep-EDFx, con 153 noches de 78 sujetos. Se separan 62 sujetos para desarrollo y 16 para la prueba final, sin mezclar noches de una misma persona.
-2. **Variables:** 145 descriptores por época a partir de dos canales de EEG, EOG y EMG, más 290 variables de contexto temporal calculadas con las épocas vecinas.
-3. **Modelo:** LightGBM ajustado mediante validación cruzada anidada por sujeto. Alcanza un **F1 macro de 0,789, una exactitud de 0,830 y un kappa de 0,769** en validación cruzada de cinco folds. Supera a Random Forest, a CatBoost y a las redes LSTM/BiLSTM evaluadas con las mismas particiones.
+2. El EDF aporta 145 características por época y 290 resúmenes temporales. FullNightNet aporta cinco probabilidades de etapa.
+3. LightGBM combina las 440 entradas. En EDF completo obtuvo 0,7806 de F1 macro en 16 sujetos reservados. La mejora sobre el LightGBM tabular fue de 1,76 puntos (IC 95 % de +0,91 a +2,67).
 4. **Despliegue:** frontend React en Vercel; API, orquestación e inferencia sin servidor en AWS (API Gateway, Lambda, Step Functions y S3); reentrenamiento bajo demanda en EC2 con MLflow. Toda la infraestructura está definida con Terraform.
 
 ## Uso de la aplicación
@@ -20,25 +20,12 @@ Este proyecto entrena un modelo que clasifica cada época en cinco estadios (W, 
 La aplicación es pública y no requiere usuario ni contraseña. Cada pestaña del navegador genera una clave aleatoria de invitado, de modo que un visitante solo puede ver sus propios resultados.
 
 1. Abrir [la aplicación](https://maia-sueno-dev-60306.vercel.app).
-2. Seleccionar **Probar ejemplo público** para procesar la noche SC4001 o cargar el archivo de una noche preparada y pulsar **Generar predicción**.
-3. Esperar el resultado, que suele tardar menos de dos segundos. Se puede recargar la página mientras se procesa.
-4. Revisar el hipnograma, el tiempo en cada estadio y la versión del modelo, y descargar el CSV con la predicción por época.
+2. Seleccionar **Probar ejemplo público** para procesar diez minutos de señal sintética, o cargar un EDF y pulsar **Generar predicción**.
+3. Revisar el hipnograma y descargar las probabilidades de vigilia, N1, N2, N3 y REM por época. La consulta conserva su enlace al recargar la pestaña.
 
-**Entrada.** Un archivo Parquet de una sola noche, de hasta 3.000 épocas y 32 MiB, con las columnas `recording_id`, `epoch_id`, `onset_s` (múltiplo de 30 s) y `eligible`, más las 145 variables numéricas del manifiesto del modelo. El worker valida el esquema y el SHA-256 antes de predecir. La carga directa de archivos EDF está en desarrollo.
+El modelo requiere EEG Fpz-Cz, EEG Pz-Oz y EOG horizontal a 100 Hz, y la envolvente de EMG submental a 1 Hz. El límite es 128 MiB y 48 horas. La API identifica el modelo como stack-five-a64415fc2bd6. [Ejemplo y contrato](docs/cloud-operations.md#probar-la-aplicación) · [Pesos y prueba local](modelos/stack_five/README.md)
 
-**Salida.** Un JSON con el resumen del trabajo y un CSV con una fila por época:
-
-```text
-recording_id,epoch_id,onset_s,eligible,prediction,prob_W,prob_N1,prob_N2,prob_N3,prob_REM
-SC4001,SC4001:2400000,24000,True,N2,0.0021,0.0473,0.9302,0.0187,0.0017
-```
-
-```json
-{"job_id": "…", "inference_seconds": 1.2, "model_version": "lgbm-49f74e944ce5457b",
- "preprocessing_id": "sc-w30-context435-v1", "rows": 841, "eligible": 841, "epochs": [ … ]}
-```
-
-Los valores de la fila de ejemplo son ilustrativos. La API REST (`/public/v1`) y sus respuestas se documentan en [docs/cloud-operations.md](docs/cloud-operations.md#api).
+La API REST (`/public/v1`), sus endpoints de salud (`/health`, `/health/ready`) y la decisión de usar Flask se documentan en [docs/api.md](docs/api.md). La API desplegada sirve su especificación OpenAPI en `/openapi.json` y una documentación interactiva en `/docs`.
 
 ## Consideraciones del modelo
 
@@ -59,11 +46,11 @@ Los valores de la fila de ejemplo son ilustrativos. La API REST (`/public/v1`) y
 | `configs/research/*.yaml` | Espacios de búsqueda de LightGBM, CatBoost y BiLSTM, paciencia y semilla | Campañas de ajuste |
 | `configs/splits/sc_subjects_v1.csv` | Partición fija por sujeto | Separación desarrollo/prueba |
 | `infra/<stack>/deploy.auto.tfvars.json` | `region`, `origin`, `images`, `inputs` (versión y SHA-256 del modelo), `monthly_budget` | Despliegue con Terraform |
-| Variables de la Lambda API | `JOBS_BUCKET`, `MACHINE_ARN`, `EXAMPLE_KEY`, `EXAMPLE_VERSION`, `EXAMPLE_SHA256` | Bucket de trabajos, flujo y noche de ejemplo |
+| Variables de la Lambda API | `JOBS_BUCKET`, `MACHINE_ARN`, `EXAMPLE_KEY`, `EXAMPLE_VERSION`, `EXAMPLE_SHA256`, `API_VERSION` | Bucket de trabajos, flujo, noche de ejemplo y versión que informa `/health` |
 | Variables de la Lambda worker | `RELEASE_BUCKET`, `MANIFEST_KEY`, `MANIFEST_VERSION`, `MANIFEST_SHA256`, `OMP_NUM_THREADS` | Versión exacta del modelo y número de hilos |
-| `frontend/dist/config.json` | `api`, `origin` y los datos de Cognito (`issuer`, `clientId`, `login`), generados desde Terraform | Configuración del frontend |
+| `frontend/dist/config.json` | `api`, `origin`, `edfEnabled` y los datos de Cognito (`issuer`, `clientId`, `login`), tomados de la salida pública de Terraform y guardados en Vercel como `MAIA_PUBLIC_CONFIG` | Configuración del frontend |
 
-Para cambiar la versión del modelo en producción basta con actualizar `inputs` y aplicar Terraform; no hay que modificar el código. Para volver a la versión anterior se aplica `live_version_arn`.
+La versión de la imagen fija ambos checkpoints y el ejemplo del híbrido. Para revertir el servicio se restauran juntas las imágenes anteriores de API y worker.
 
 ## Reproducir el despliegue
 
@@ -184,12 +171,18 @@ make check
 make test
 ```
 
+GitHub Actions ejecuta estos mismos comandos en cada pull request. Vercel compila `frontend/` y publica la web directamente en cada merge a `main`. GitHub Actions despliega los cambios del backend en AWS y comprueba la paridad de las predicciones. [Integración y entrega continuas](docs/cloud-operations.md#integración-y-entrega-continuas)
+
 Las pruebas de integración de señales y entrenamiento usan los EDF reales del piloto. Si aún no se descargaron, se marcan como omitidas; `make test` informa cuántas corrieron. Las pruebas unitarias de fórmulas y validación de metadatos no sustituyen un dataset experimental.
 
-El [plan de implementación](plans/20261020-1943-infraestructura-local-sleep-edfx-mlflow.md) conserva el avance y las ampliaciones pendientes. La evaluación final del test reservado, el análisis Telemetry y la integración para EDF nuevos permanecen pendientes.
+El [plan de implementación inicial](plans/20261020-1943-infraestructura-local-sleep-edfx-mlflow.md) conserva el historial del piloto. La campaña IBIO posterior completó la evaluación reservada, la transferencia a Telemetry y la carga de EDF completos.
+
+## Experimento histórico de seis clases
+
+La [guía de ejecución](docs/ibio-registro-completo.md) permite cargar una PSG, elegir entre 12 combinaciones de EEG, EOG y EMG y descargar un hipnograma con seis probabilidades por época. El [informe experimental](output/pdf/resultados-ibio-registro-completo.pdf) incluye las matrices de cinco y seis clases, los errores de N1 y la referencia U-Sleep reentrenada. En los 16 participantes reservados de Cassette, añadir el espectrograma elevó el F1 macro de cinco clases de 0,740 a 0,752. El modelo de movimiento detectó 5 de 13 épocas M.
 
 Datos y licencia: [Sleep-EDFx 1.0.0 en PhysioNet](https://physionet.org/content/sleep-edfx/1.0.0/), Open Data Commons Attribution License 1.0. Conservar las citas y atribución indicadas por el repositorio de origen al publicar resultados.
 
 ## Laboratorio desplegado
 
-El frontend en Vercel permite procesar una noche preparada, ver su hipnograma y descargar las probabilidades por época. AWS ejecuta la inferencia con el campeón versionado en S3. El entrenamiento bajo demanda se realiza en EC2 y registra cada ajuste en MLflow. [Abrir el laboratorio](https://maia-sueno-dev-60306.vercel.app) · [Despliegue y operación](docs/cloud-operations.md)
+El frontend en Vercel permite procesar un EDF, ver su hipnograma y descargar las probabilidades por época. AWS ejecuta la inferencia con los dos checkpoints del híbrido incluidos en la imagen. El entrenamiento bajo demanda se realiza en EC2 y registra cada ajuste en MLflow. [Abrir el laboratorio](https://maia-sueno-dev-60306.vercel.app) · [Despliegue y operación](docs/cloud-operations.md)

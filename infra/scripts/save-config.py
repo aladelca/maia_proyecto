@@ -12,9 +12,10 @@ fields = {
         "inputs",
         "existing_role_arn",
         "live_version_arn",
+        "edf_lgbm_enabled",
         "region",
     },
-    "vercel": {"project_name", "team_id", "publish"},
+    "vercel": {"project_name", "team_id", "publish", "repository"},
     "training": {
         "region",
         "subnets",

@@ -19,6 +19,9 @@ test("acceso público, recarga, aislamiento entre visitantes y carga de una noch
   await expect(page.getByRole("img", { name: /Hipnograma/ })).toBeVisible({
     timeout: 90000,
   });
+  await expect(
+    page.getByText("stack-five-a64415fc2bd6", { exact: true }),
+  ).toBeVisible();
   const first = page.url();
   const guest = await browser.newContext();
   try {
@@ -34,15 +37,15 @@ test("acceso público, recarga, aislamiento entre visitantes y carga de una noch
   await page
     .locator("#night")
     .setInputFiles(
-      process.env.EXAMPLE_PARQUET ??
-        resolve("../var/cloud/bundle/example.parquet"),
+      process.env.EXAMPLE_EDF ??
+        resolve("../output/demo-sueno-sintetico-10min.edf"),
     );
   await page.getByRole("button", { name: "Generar predicción" }).click();
   await expect(page).not.toHaveURL(first);
   await expect(page.getByRole("img", { name: /Hipnograma/ })).toBeVisible({
     timeout: 60000,
   });
-  await expect(page.getByText(/841 épocas analizadas/)).toBeVisible();
+  await expect(page.getByText(/20 épocas analizadas/)).toBeVisible();
   const downloadEvent = page.waitForEvent("download");
   await page.getByRole("button", { name: /Descargar probabilidades/ }).click();
   expect((await downloadEvent).suggestedFilename()).toMatch(/\.csv$/);

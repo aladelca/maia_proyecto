@@ -1,0 +1,205 @@
+name: Deploy inference (dev)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/sleep_staging/**
+      - modelos/stack_five/**
+      - output/demo-sueno-sintetico-10min.edf
+      - services/**
+      - containers/**
+      - infra/aws/**
+      - infra/scripts/init.sh
+      - infra/scripts/push-image.sh
+      - ci/check-plan.py
+      - ci/set-images.py
+      - scripts/smoke_cloud.py
+      - pyproject.toml
+      - uv.lock
+      - .dockerignore
+  workflow_dispatch:
+    inputs:
+      e2e:
+        description: Ejecutar también la prueba de navegador contra Vercel
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Un despliegue a la vez; el siguiente espera en cola, como CodePipeline en modo QUEUED.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Inferencia AWS
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: dev
+      url: ${{ steps.public.outputs.origin }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      CONFIG: infra/aws/deploy.auto.tfvars.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Una cuenta propia usa OIDC con vars.AWS_ROLE_ARN. AWS Academy no permite crear el rol,
+      # así que el laboratorio usa la sesión temporal que carga `make ci-credentials`.
+      - name: Credenciales AWS por OIDC
+        if: vars.AWS_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: maia-deploy-${{ github.run_id }}
+          mask-aws-account-id: true
+      - name: Credenciales AWS de la sesión del laboratorio
+        if: vars.AWS_ROLE_ARN == ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          mask-aws-account-id: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: inputs.e2e || vars.RUN_E2E == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Las imágenes no son reproducibles bit a bit; reconstruirlas sin cambios publicaría
+      # versiones nuevas de Lambda y Step Functions sin motivo.
+      - name: Detectar cambios del backend
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          backend=true
+          if [ "$GITHUB_EVENT_NAME" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null &&
+            git diff --quiet "$BEFORE" "$GITHUB_SHA" -- src/sleep_staging services containers modelos/stack_five output/demo-sueno-sintetico-10min.edf infra/aws \
+              infra/scripts ci/check-plan.py ci/set-images.py pyproject.toml uv.lock .dockerignore; then
+            backend=false
+          fi
+          echo "backend=$backend" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Leer la configuración aprobada del entorno
+        run: |
+          infra/scripts/init.sh platform
+          research=$(terraform -chdir=infra/platform output -json buckets | jq -r .research)
+          mkdir -p var/cloud
+          aws s3api get-object --bucket "$research" --key delivery/config/aws.json "$CONFIG" \
+            --query ETag --output text > var/cloud/aws.etag
+          cp "$CONFIG" var/cloud/previous-aws.json
+          if jq -e '.live_version_arn // empty' "$CONFIG" >/dev/null; then
+            echo "::warning::live_version_arn fija Step Functions en una versión anterior; el worker nuevo no recibirá trabajos hasta retirarla."
+          fi
+          infra/scripts/init.sh aws
+
+      - name: Construir y publicar las imágenes por digest
+        if: steps.changes.outputs.backend == 'true'
+        run: |
+          for component in api worker; do infra/scripts/push-image.sh "$component"; done
+          python3 ci/set-images.py aws
+
+      - name: Planificar la inferencia
+        if: steps.changes.outputs.backend == 'true'
+        run: |
+          terraform -chdir=infra/aws plan -input=false -out=release.tfplan
+          terraform -chdir=infra/aws show -json release.tfplan | python3 ci/check-plan.py aws
+
+      - name: Aplicar la inferencia
+        id: apply
+        if: steps.changes.outputs.backend == 'true'
+        run: terraform -chdir=infra/aws apply -input=false release.tfplan
+
+      - name: Leer la configuración pública
+        id: public
+        run: |
+          terraform -chdir=infra/aws output -json public_config > var/cloud/public-config.json
+          echo "origin=$(jq -r .origin var/cloud/public-config.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Descargar la noche de referencia de la release activa
+        run: |
+          releases=$(jq -r .inputs.buckets.releases "$CONFIG")
+          mkdir -p var/cloud/bundle
+          for name in example.parquet expected.parquet; do
+            read -r key version sha256 < <(jq -r --arg n "$name" '.inputs.objects[$n] | "\(.key) \(.version) \(.sha256)"' "$CONFIG")
+            aws s3api get-object --bucket "$releases" --key "$key" --version-id "$version" "var/cloud/bundle/$name" >/dev/null
+            echo "$sha256  var/cloud/bundle/$name" | sha256sum -c -
+          done
+
+      - name: Prueba de humo y paridad de la API
+        id: smoke
+        if: steps.changes.outputs.backend == 'true'
+        env:
+          DEMO_USERNAME: ${{ secrets.DEMO_USERNAME }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          uv run --locked --no-dev --extra cloud python scripts/smoke_cloud.py \
+            --config var/cloud/public-config.json --require-stack | tee var/cloud/smoke.json
+          { echo "### Prueba de humo"; echo; echo '```json'; cat var/cloud/smoke.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      # La escritura condicional falla si alguien cambió la configuración durante el despliegue.
+      - name: Registrar las imágenes aprobadas
+        if: steps.changes.outputs.backend == 'true'
+        run: |
+          aws s3api put-object --bucket "$(jq -r .inputs.buckets.research "$CONFIG")" \
+            --key delivery/config/aws.json --body "$CONFIG" --content-type application/json \
+            --if-match "$(cat var/cloud/aws.etag)" >/dev/null ||
+            { echo "::error::delivery/config/aws.json cambió durante el despliegue. Revísalo antes de reintentar."; exit 1; }
+
+      - name: Prueba de navegador
+        if: inputs.e2e || vars.RUN_E2E == 'true'
+        working-directory: frontend
+        env:
+          DEMO_ORIGIN: ${{ steps.public.outputs.origin }}
+          DEMO_USERNAME: ${{ secrets.DEMO_USERNAME }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      # Revierte las imágenes con el código Terraform actual. Un cambio de Terraform se revierte
+      # con un commit de revert, que vuelve a pasar por este workflow.
+      - name: Revertir la inferencia a las imágenes registradas
+        if: failure() && (steps.apply.outcome == 'failure' || steps.smoke.outcome == 'failure')
+        env:
+          DEMO_USERNAME: ${{ secrets.DEMO_USERNAME }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          cp var/cloud/previous-aws.json "$CONFIG"
+          terraform -chdir=infra/aws apply -input=false -auto-approve
+          terraform -chdir=infra/aws output -json public_config > var/cloud/public-config.json
+          uv run --locked --no-dev --extra cloud python scripts/smoke_cloud.py --config var/cloud/public-config.json
+          echo "::error::El despliegue no superó la prueba de humo. La inferencia volvió a las imágenes de delivery/config/aws.json."
