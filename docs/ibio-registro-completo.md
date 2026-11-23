@@ -6,7 +6,7 @@ La campaña de noviembre de 2026 implementa las tres comparaciones de la propues
 
 Las predicciones por época, los pesos por pliegue y las cuatro corridas originales de MLflow se pueden recuperar desde GitHub. [Descarga y restauración de la evidencia](../output/evidencia/README.md)
 
-Desde la raíz del proyecto, los siguientes comandos instalan las dependencias y levantan la interfaz en el puerto 8765. La opción `cpu` basta para puntuar un registro. En otro equipo puedes descomprimir el paquete y asignar a `RUN` el directorio de la campaña extraída. [Abrir la plataforma local](http://127.0.0.1:8765) · [Paquete de modelos y resultados](../output/ibio-modelos-y-resultados.zip)
+Desde la raíz del proyecto, los siguientes comandos instalan las dependencias y levantan la interfaz en el puerto 8765. La opción `cpu` basta para puntuar un registro. En otro equipo puedes descomprimir el paquete y asignar a `RUN` el directorio de la campaña extraída. Plataforma local: `http://127.0.0.1:8765` · [Paquete de modelos y resultados](../output/ibio-modelos-y-resultados.zip)
 
 ```bash
 uv sync --locked --group dev --extra dl --extra boosting --extra cloud --extra usleep

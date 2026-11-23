@@ -37,7 +37,7 @@ En una terminal dedicada:
 make mlflow
 ```
 
-Mantener esa terminal abierta. El servicio escucha en localhost, utiliza un worker y conserva un bloqueo para impedir respaldos simultáneos. Abrir [http://127.0.0.1:5001](http://127.0.0.1:5001).
+Mantener esa terminal abierta. El servicio escucha en localhost, utiliza un worker y conserva un bloqueo para impedir respaldos simultáneos. Abrir `http://127.0.0.1:5001`.
 
 En otra terminal, desde la misma raíz:
 

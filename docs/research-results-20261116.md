@@ -61,7 +61,7 @@ La importancia interna de LightGBM se expresa como número de divisiones. Destac
 
 ## Artefactos y MLflow
 
-- UI local: [MLflow, experimento sleep-cassette-literature-v2](http://127.0.0.1:5002/#/experiments/1).
+- UI local: MLflow local, experimento `sleep-cassette-literature-v2` (`http://127.0.0.1:5002/#/experiments/1`).
 - Se registraron ocho comparaciones de modelos, 15 subcorridas de ajuste interno, el ensamble fijo y el reentrenamiento del candidato.
 - Modelo registrado: `models:/sleep_sc_task5_literature_v2@candidate`; URI inmutable: `models:/m-666d43b627cc44018a8570915279ff90`.
 - Archivos locales bajo `var/research/sc-w30-v2/`: `leaderboard.csv`, `campaign.json`, `candidate.joblib`, `tracking-audit.json`, predicciones OOF, métricas por sujeto e imágenes.

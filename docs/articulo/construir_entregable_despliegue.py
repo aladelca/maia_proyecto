@@ -1,7 +1,7 @@
 """Genera el documento breve del entregable de despliegue (Word).
 
 Uso (desde la raíz del repositorio):
-    uv run --with python-docx python docs/articulo/construir_entregable_despliegue.py
+    uv run --no-project --with python-docx python docs/articulo/construir_entregable_despliegue.py
 """
 
 from pathlib import Path
@@ -15,6 +15,7 @@ OUT = Path(__file__).resolve().parent / "Entregable_despliegue.docx"
 FONT = "Times New Roman"
 REPO = "https://github.com/aladelca/maia_proyecto"
 APP = "https://maia-sueno-dev-60306.vercel.app"
+API = "https://9u8vgivsce.execute-api.us-west-2.amazonaws.com"
 
 doc = Document()
 s = doc.sections[0]
@@ -64,23 +65,31 @@ item("Repositorio en GitHub", REPO)
 item("Aplicación desplegada", APP)
 item("Guía de despliegue y operación", f"{REPO}/blob/main/docs/cloud-operations.md")
 item("Ficha e instrucciones del modelo", f"{REPO}/blob/main/modelos/README.md")
+item("Documentación interactiva de la API", f"{API}/docs")
 
 p("Acceso", bold=True)
 p("La aplicación es pública y no requiere credenciales. Para probarla basta con abrir el "
-  "enlace y seleccionar «Probar ejemplo público», que procesa una noche real del conjunto "
-  "Sleep-EDF y muestra el hipnograma, el tiempo en cada estadio y un CSV descargable con la "
-  "predicción y las probabilidades por época. Cada pestaña del navegador recibe una clave de "
+  "enlace y seleccionar «Probar ejemplo público», que procesa diez minutos de señal sintética "
+  "con el modelo desplegado y muestra el hipnograma, el tiempo en cada estadio, un resumen de "
+  "la noche y un CSV descargable con la predicción y las probabilidades por época. Para "
+  "analizar una noche real se puede cargar el EDF SC4011E0-PSG.edf de Sleep-EDF (PhysioNet), "
+  "de un participante reservado para la prueba. Cada pestaña del navegador recibe una clave de "
   "invitado aleatoria, de modo que cada visitante solo ve sus propios resultados.")
-p("El repositorio es público y puede consultarse sin iniciar sesión en GitHub.")
+p("La inferencia corre en un laboratorio de AWS Academy, cuya sesión debe estar iniciada "
+  "durante la franja de evaluación. El repositorio es público y puede consultarse sin iniciar "
+  "sesión en GitHub.")
 
 p("Resumen de la solución desplegada", bold=True)
-p("El modelo final es un LightGBM ajustado que clasifica cada época de 30 segundos en cinco "
-  "estadios (W, N1, N2, N3 y REM) a partir de 435 variables de EEG, EOG y EMG con contexto "
-  "temporal. En validación cruzada por sujeto obtuvo un F1 macro de 0,789 y un kappa de 0,769. "
-  "Se despliega sin servidor: el frontend React está en Vercel y la API, la orquestación y la "
-  "inferencia en AWS (API Gateway, Lambda, Step Functions y S3), con toda la infraestructura "
-  "definida en Terraform. El modelo corre en CPU, se carga una vez por contenedor tras verificar "
-  "su SHA-256 y procesa una noche completa en menos de dos segundos.")
+p("El modelo final es un híbrido (stack_five) que clasifica cada época de 30 segundos en cinco "
+  "estadios (W, N1, N2, N3 y REM). Una red neuronal, FullNightNet, recorre la noche completa y "
+  "aporta cinco probabilidades de etapa, que un LightGBM combina con 435 variables de EEG, EOG "
+  "y EMG con contexto temporal. En los 16 participantes reservados para la prueba, puntuando el "
+  "EDF completo, obtuvo un F1 macro de 0,781, 1,8 puntos más que el LightGBM solo. Se despliega "
+  "sin servidor: el frontend React está en Vercel y la API, la orquestación y la inferencia en "
+  "AWS (API Gateway, Lambda, Step Functions y S3), con toda la infraestructura definida en "
+  "Terraform. El modelo corre en CPU; sus pesos (4,2 MiB) se versionan en el repositorio, se "
+  "incluyen en la imagen del worker y se verifican por SHA-256 antes de cargarlos. Con el "
+  "ejemplo público, el análisis tardó entre 5 y 10 segundos de punta a punta.")
 
 doc.save(OUT)
 print(OUT)

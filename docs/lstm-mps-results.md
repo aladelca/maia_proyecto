@@ -77,7 +77,7 @@ Los intervalos son condicionales a las predicciones de los modelos OOF ya entren
 
 ## MLflow y candidato neuronal
 
-- Experimento: [sleep-cassette-lstm-mps-v1](http://127.0.0.1:5002/#/experiments/2), en el tracking local existente.
+- Experimento: `sleep-cassette-lstm-mps-v1` en el MLflow local (`http://127.0.0.1:5002/#/experiments/2`), en el tracking local existente.
 - Campaña: `cec1b268c47cf3922935`; run padre `0b66f79bb9c24dbfa20ab038d80bcbd9`.
 - El experimento contiene 73 runs: 68 para organizar la campaña científica y sus 48 entrenamientos, y cinco para preflight/benchmark. Todas las corridas científicas terminaron correctamente.
 - Cada entrenamiento conserva configuración, sujetos, escalador, pesos de clase, curvas, estados RNG, optimizador y checkpoints. Se guardaron probabilidades OOF para los mismos 152.052 objetivos de cada modelo.

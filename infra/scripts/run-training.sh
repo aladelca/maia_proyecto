@@ -1,8 +1,8 @@
 #!/bin/bash
 # Isolate each campaign's disposable instance from the long-lived serving and training stacks.
 set -euo pipefail
-mode=${1:-refit}
-case "$mode" in refit|tune) ;; *) exit 2;; esac
+mode=${1:-stack}
+case "$mode" in stack|refit|tune) ;; *) echo "Uso: $0 [stack|refit|tune]" >&2; exit 2;; esac
 job=${CAMPAIGN_ID:-$(python3 -c 'import uuid;print(uuid.uuid4())')}
 python3 -c 'import sys,uuid;assert str(uuid.UUID(sys.argv[1]))==sys.argv[1]' "$job"
 attempt=$(python3 -c 'import uuid;print(uuid.uuid4())')

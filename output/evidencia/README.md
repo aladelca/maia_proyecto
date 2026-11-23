@@ -21,7 +21,7 @@ for paquete in output/evidencia/*.zip; do unzip -nq "$paquete"; done
 
 ### Consultar las corridas originales en MLflow
 
-La copia conserva los identificadores y tiempos originales de desarrollo y prueba. Las ubicaciones de los archivos en SQLite son relativas a la raíz del clon. Tras extraer `mlflow-ibio.zip`, ejecuta desde esa raíz el siguiente comando y abre [MLflow local](http://127.0.0.1:5003/#/experiments/1).
+La copia conserva los identificadores y tiempos originales de desarrollo y prueba. Las ubicaciones de los archivos en SQLite son relativas a la raíz del clon. Tras extraer `mlflow-ibio.zip`, ejecuta desde esa raíz el siguiente comando y abre el MLflow local en `http://127.0.0.1:5003/#/experiments/1`.
 
 ```bash
 uv run --locked mlflow server --host 127.0.0.1 --port 5003 \

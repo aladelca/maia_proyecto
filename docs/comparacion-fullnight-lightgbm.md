@@ -1,6 +1,6 @@
 # FullNightNet como entrada del LightGBM publicado
 
-En las noches reservadas de Sleep Cassette, añadir las cinco probabilidades de etapa de FullNightNet al LightGBM elevó el F1 macro de 0,7879 a 0,7970 con el protocolo histórico W30 y de 0,7630 a 0,7806 al puntuar el EDF completo. FullNightNet por sí solo obtuvo puntuaciones inferiores a las de LightGBM. La comparación evalúa los mismos pacientes, canales, etiquetas y épocas dentro de cada columna. [Notebook ejecutado](../notebook/20261120-1342-fullnight-lightgbm-w30.ipynb)
+En las noches reservadas de Sleep Cassette, añadir las cinco probabilidades de etapa de FullNightNet al LightGBM elevó el F1 macro de 0,7879 a 0,7970 con el protocolo histórico W30 y de 0,7630 a 0,7806 al puntuar el EDF completo. FullNightNet por sí solo obtuvo puntuaciones inferiores a las de LightGBM. La comparación evalúa los mismos pacientes, canales, etiquetas y épocas dentro de cada columna. [Notebook ejecutado](../notebooks/10_hibrido_fullnight_lightgbm.ipynb)
 
 | Modelo | Desarrollo W30, F1 macro medio ± DE | Prueba W30, F1 macro | Prueba W30, F1 N1 | EDF completo, F1 macro | EDF completo, F1 N1 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -23,7 +23,7 @@ La mejora se observó en Sleep Cassette y con una semilla por ajuste. Los 16 par
 
 ## Seguimiento y reproducción
 
-La corrida se guardó en el mismo experimento de las corridas históricas de LightGBM y se replicó en el experimento histórico de FullNightNet. En cada almacén la corrida padre contiene las predicciones por época, los diez ajustes internos, los modelos históricos por pliegue, las recetas, los datos de procedencia, el código, las tablas y las matrices de confusión. Las corridas hijas contienen métricas por etapa y los modelos correspondientes. [Abrir corrida en MLflow local](http://127.0.0.1:5002/#/experiments/3/runs/bb7fa78abcfb41ab87c86ee89755ae87) · [Identificadores en ambos almacenes](../output/evidencia/resumen/fullnight-lgbm-w30/mlflow-runs.json)
+La corrida se guardó en el mismo experimento de las corridas históricas de LightGBM y se replicó en el experimento histórico de FullNightNet. En cada almacén la corrida padre contiene las predicciones por época, los diez ajustes internos, los modelos históricos por pliegue, las recetas, los datos de procedencia, el código, las tablas y las matrices de confusión. Las corridas hijas contienen métricas por etapa y los modelos correspondientes. Corrida en el MLflow local: `http://127.0.0.1:5002/#/experiments/3/runs/bb7fa78abcfb41ab87c86ee89755ae87` · [Identificadores en ambos almacenes](../output/evidencia/resumen/fullnight-lgbm-w30/mlflow-runs.json)
 
 Desde la raíz del proyecto, con las campañas históricas en `var/research`, el paquete publicado en `var/cloud/bundle` y el catálogo Sleep Cassette disponible, se reproduce mediante los siguientes comandos. Para usar otra ubicación de los EDF se pasa `--source-root` a ambos comandos de comparación.
 
