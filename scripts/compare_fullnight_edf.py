@@ -15,7 +15,6 @@ from compare_fullnight_lgbm import (
     CAMPAIGN,
     OUT,
     PROBS,
-    PROFILE,
     RESEARCH,
     ROOT,
     SIX,
@@ -31,6 +30,7 @@ from sleep_staging.fullnight.cohort import research_root, source_file
 from sleep_staging.provenance import atomic_path, fingerprint, hash_file, write_json
 from sleep_staging.serving.contract import LABELS, context_matrix
 from sleep_staging.serving.edf_lgbm import prepare_edf
+from sleep_staging.stack_training import PROFILE
 
 
 def verify_serving(

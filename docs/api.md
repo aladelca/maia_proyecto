@@ -1,6 +1,6 @@
 # API HTTP
 
-La API recibe una noche (Parquet preparado o EDF), lanza la inferencia en Step Functions y devuelve el hipnograma por época. Es una aplicación Flask (`services/api/app.py`) que corre en Lambda detrás de API Gateway. No ejecuta el modelo: valida la solicitud, firma las cargas en S3, inicia el flujo y consulta su estado.
+La API recibe una noche en EDF, lanza la inferencia del híbrido `stack_five` en Step Functions y devuelve el hipnograma por época. El código conserva rutas históricas para Parquet y otros modelos EDF, pero la imagen publicada las desactiva (ver `features` en `/health`). Es una aplicación Flask (`services/api/app.py`) que corre en Lambda detrás de API Gateway. No ejecuta el modelo: valida la solicitud, firma las cargas en S3, inicia el flujo y consulta su estado.
 
 | Recurso | Dónde |
 | --- | --- |

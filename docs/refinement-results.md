@@ -63,7 +63,7 @@ El intervalo de LightGBM frente al campeón anterior queda por encima de cero. E
 
 ## Reproducción y seguimiento
 
-Se completaron 78 entrenamientos LightGBM en CPU y 42 BiLSTM en MPS. El reinicio del equipo ocurrió después de los primeros 99. La recuperación reutilizó los cuatro folds completos de LightGBM y cinco ensayos del quinto fold. Los 21 ajustes restantes terminaron bajo el mismo run padre. Cada entrenamiento guarda parámetros, métricas, curvas y checkpoint. [Experimento 3 en MLflow local](http://127.0.0.1:5002/#/experiments/3)
+Se completaron 78 entrenamientos LightGBM en CPU y 42 BiLSTM en MPS. El reinicio del equipo ocurrió después de los primeros 99. La recuperación reutilizó los cuatro folds completos de LightGBM y cinco ensayos del quinto fold. Los 21 ajustes restantes terminaron bajo el mismo run padre. Cada entrenamiento guarda parámetros, métricas, curvas y checkpoint. Experimento 3 en el MLflow local: `http://127.0.0.1:5002/#/experiments/3`
 
 | Familia | Run padre | Run del candidato final |
 | --- | --- | --- |

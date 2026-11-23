@@ -22,10 +22,10 @@ variable "run_id" {
   }
 }
 variable "mode" {
-  default = "refit"
+  default = "stack"
   validation {
-    condition     = contains(["refit", "tune"], var.mode)
-    error_message = "Choose refit or tune."
+    condition     = contains(["stack", "refit", "tune"], var.mode)
+    error_message = "Choose stack, refit or tune."
   }
 }
 variable "instance_type" { default = "t3.large" }
