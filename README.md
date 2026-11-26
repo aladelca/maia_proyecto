@@ -117,6 +117,7 @@ Las credenciales de AWS se cargan desde un `.env` local, que no se versiona. El 
 | `src/sleep_staging/` | Paquete: datos, características, modelos, evaluación, entrenamiento del híbrido (`stack_training.py`) y servicio de inferencia (`serving/`) |
 | `services/api/` | API de la aplicación |
 | `frontend/` | Interfaz web (React + Vite) y pruebas end-to-end con Playwright |
+| `Datos/` | Muestra real de Sleep-EDF: un registro EDF completo, su hipnograma experto, atribución e instrucciones de uso. [Ver muestra](Datos/README.md). |
 | `notebooks/` | Auditoría de datos, análisis de variables y campañas de experimentación. `10_hibrido_fullnight_lightgbm.ipynb` evalúa el modelo final. |
 | `modelos/` | Ficha del modelo final y sus pesos (`stack_five/`) |
 | `configs/` | Configuración de datos, experimentos, búsquedas y partición |
