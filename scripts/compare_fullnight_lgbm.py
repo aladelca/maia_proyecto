@@ -15,6 +15,15 @@ from sleep_staging.fullnight.cohort import research_root, source_file
 from sleep_staging.provenance import atomic_path, fingerprint, hash_file, write_json
 from sleep_staging.research_data import _record_features
 from sleep_staging.serving.contract import LABELS, context_matrix
+from sleep_staging.stack_training import (
+    KEYS,
+    PROBS,
+    SIX,
+    aligned,
+    conditional,
+    frozen_prob,
+    stacked,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 RESEARCH = ROOT / "var/research"
@@ -22,10 +31,6 @@ CAMPAIGN = RESEARCH / "ibio-fullnight/development/681a52f21d273bf190ae"
 OUT = RESEARCH / "fullnight-lgbm-w30"
 SPLIT = ROOT / "configs/splits/sc_subjects_v1.csv"
 BUNDLE = ROOT / "var/cloud/bundle"
-PROBS = ["prob_" + s for s in LABELS]
-SIX = PROBS + ["prob_M"]
-KEYS = ["recording_id", "subject_id", "onset_s", "fold"]
-PROFILE = "eeg_fpz_cz+eeg_pz_oz+eog+emg"
 ARMS = ["lightgbm_release", "fullnight_five", "stack_five", "stack_five_movement"]
 
 
@@ -95,57 +100,6 @@ def matrices(
         raw.loc[keep, ["epoch_id", *KEYS, "task_5"]].reset_index(drop=True),
         x.loc[keep].reset_index(drop=True),
     )
-
-
-def frozen_prob(folder: Path, cohort: str) -> pd.DataFrame:
-    return pd.read_parquet(
-        folder / "predictions.parquet",
-        filters=[
-            ("model", "==", "six_direct"),
-            ("profile", "==", PROFILE),
-            ("cohort", "==", cohort),
-            ("w30", "==", True),
-            ("target", ">=", 0),
-            ("target", "<", 5),
-        ],
-        columns=["record", "subject", "onset_s", "fold", "target", *SIX],
-    ).rename(columns={"record": "recording_id", "subject": "subject_id"})
-
-
-def aligned(meta: pd.DataFrame, predictions: pd.DataFrame) -> np.ndarray:
-    merged = meta.merge(
-        predictions, on=KEYS, how="left", validate="one_to_one", sort=False
-    )
-    if not merged.target.eq(
-        merged.task_5.map(dict(zip(LABELS, range(5), strict=True)))
-    ).all():
-        raise ValueError(
-            "Missing probability or mismatched target/epoch in a paired comparison"
-        )
-    p = merged[SIX].to_numpy(dtype=np.float32)
-    if (
-        not np.isfinite(p).all()
-        or (p < 0).any()
-        or not np.allclose(p.sum(1), 1, atol=1e-5)
-    ):
-        raise ValueError("Invalid FullNight probabilities on LightGBM-eligible epochs")
-    return p
-
-
-def conditional(p: np.ndarray) -> np.ndarray:
-    total = p[:, :5].sum(1, keepdims=True)
-    if (total <= 0).any():
-        raise ValueError("Undefined conditional probabilities")
-    return p[:, :5] / total
-
-
-def stacked(x: pd.DataFrame, p: np.ndarray, movement: bool) -> pd.DataFrame:
-    added = pd.DataFrame(
-        conditional(p), index=x.index, columns=["fullnight_" + c for c in LABELS]
-    )
-    if movement:
-        added["fullnight_M"] = p[:, 5]
-    return pd.concat([x, added], axis=1)
 
 
 def predict(model: Any, x: pd.DataFrame) -> np.ndarray:

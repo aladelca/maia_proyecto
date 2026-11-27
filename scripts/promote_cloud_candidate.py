@@ -25,6 +25,8 @@ def promote(job: str, baseline: Path, output: Path) -> None:
         s3.get_object(Bucket=b["research"], Key=prefix + "progress.json")["Body"].read()
     )
     candidate = progress["candidate"]
+    if "stack_five.joblib" in candidate:
+        raise ValueError("Candidato híbrido: usar scripts/promote_stack_candidate.py.")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         for name, ref in candidate.items():

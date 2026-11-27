@@ -1,10 +1,12 @@
 import importlib.util
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
-from sleep_staging.serving.contract import context_matrix
+from sleep_staging.serving.contract import LABELS, context_matrix
+from sleep_staging.stack_training import SIX
 
 pytest.importorskip("boto3")
 pytest.importorskip("lightgbm")
@@ -17,7 +19,7 @@ training = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(training)
 
 
-def test_only_frozen_development_enters_refit():
+def cohort() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     raw = pd.DataFrame(
         {
             "subject_id": list("abcde"),
@@ -38,6 +40,11 @@ def test_only_frozen_development_enters_refit():
     )
     cols = ["eog__feature"]
     manifest = dict(raw_columns=cols, model_columns=list(context_matrix(raw, cols)))
+    return raw, split, manifest
+
+
+def test_only_frozen_development_enters_refit():
+    raw, split, manifest = cohort()
     data = training.development(raw, split, manifest)
     assert len(data.targets) == 5 and data.columns == manifest["model_columns"]
     with pytest.raises(ValueError):
@@ -48,3 +55,23 @@ def test_only_frozen_development_enters_refit():
         training.development(
             raw, pd.concat([split, split.iloc[[0]].assign(partition="test")]), manifest
         )
+
+
+def test_stack_appends_out_of_fold_fullnight_probabilities():
+    raw, split, manifest = cohort()
+    data = training.development(raw, split, manifest)
+    six = np.full((5, 6), 0.1)
+    six[np.arange(5), np.arange(5)] = 0.5
+    oof = raw[["recording_id", "subject_id", "onset_s", "fold"]].assign(target=range(5))
+    oof[SIX] = six
+    x, y = training.stack_inputs(data, oof)
+    neural = ["fullnight_" + s for s in LABELS]
+    assert list(x) == manifest["model_columns"] + neural
+    assert y.tolist() == LABELS
+    # Movement mass is removed and the five stages are renormalised.
+    np.testing.assert_allclose(x[neural].sum(1), 1, rtol=1e-6)
+    np.testing.assert_allclose(np.diag(x[neural]), 0.5 / 0.9, rtol=1e-6)
+    with pytest.raises(ValueError):
+        training.stack_inputs(data, oof.iloc[1:])
+    with pytest.raises(ValueError):
+        training.stack_inputs(data, oof.assign(target=[1, 0, 2, 3, 4]))

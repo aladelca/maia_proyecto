@@ -3,10 +3,12 @@
 import argparse
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import boto3
+import pandas as pd
 from botocore.exceptions import ClientError
 
 from sleep_staging.provenance import hash_file, write_json
@@ -59,7 +61,42 @@ def publish_bundle(s3: Any, bucket: str, bundle: Path, m: dict) -> dict:
     return pointers
 
 
-def publish(bundle: Path, output: Path, edf_run: Path | None = None) -> None:
+def stack_inputs(campaign: Path, folder: Path) -> list[tuple[str, Path, dict]]:
+    """Out-of-fold FullNightNet probabilities and the hybrid inputs of the bundled EDF."""
+    from sleep_staging.serving.stacked_edf import EXAMPLE_PATH, classifier, inputs
+    from sleep_staging.stack_release import CHECKPOINTS
+    from sleep_staging.stack_training import fullnight_oof
+
+    freeze = json.loads((campaign / "freeze.json").read_text())
+    weights = hash_file(campaign / "refit" / "six_direct.pt")
+    if (
+        freeze["smoke"]
+        or freeze["edf_model"] != "six_direct.pt"
+        or weights != freeze["weights"]["six_direct.pt"]
+        or weights != CHECKPOINTS["six_direct.pt"]
+    ):
+        raise ValueError("La campaña FullNightNet no corresponde a la red publicada.")
+    oof = folder / "fullnight-oof.parquet"
+    fullnight_oof(campaign).to_parquet(oof, index=False)
+    result, x = inputs(EXAMPLE_PATH, "night", list(classifier().feature_names_in_))
+    example = folder / "stack-example.parquet"
+    pd.concat(
+        [
+            result.loc[result.eligible, ["onset_s"]].reset_index(drop=True),
+            x.reset_index(drop=True),
+        ],
+        axis=1,
+    ).to_parquet(example, index=False)
+    fullnight = {"run": freeze["run"], "checkpoint_sha256": weights}
+    return [("fullnight_oof", oof, fullnight), ("stack_example", example, {})]
+
+
+def publish(
+    bundle: Path,
+    output: Path,
+    edf_run: Path | None = None,
+    stack_run: Path | None = None,
+) -> None:
     s3 = boto3.client("s3")
     buckets = platform_outputs()["buckets"]
     m = json.loads((bundle / "manifest.json").read_text())
@@ -95,6 +132,18 @@ def publish(bundle: Path, output: Path, edf_run: Path | None = None) -> None:
             "datasets/" + hash_file(path) + "/" + path.name,
             path,
         )
+    with tempfile.TemporaryDirectory() as tmp:
+        stacked = stack_inputs(stack_run, Path(tmp)) if stack_run else []
+        for label, path, extra in stacked:
+            pointers[label] = {
+                **put_verified(
+                    s3,
+                    buckets["research"],
+                    "datasets/" + hash_file(path) + "/" + path.name,
+                    path,
+                ),
+                **extra,
+            }
     release = {"buckets": buckets, "objects": pointers, "release": m["release_id"]}
     write_json(output, release)
 
@@ -108,5 +157,10 @@ if __name__ == "__main__":
         type=Path,
         help="Campaña completa con freeze.json para habilitar cargas EDF.",
     )
+    p.add_argument(
+        "--stack-run",
+        type=Path,
+        help="Campaña FullNightNet del híbrido: publica las entradas de train_cloud.py --mode stack.",
+    )
     a = p.parse_args()
-    publish(a.bundle, a.output, a.edf_run)
+    publish(a.bundle, a.output, a.edf_run, a.stack_run)

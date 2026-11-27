@@ -16,7 +16,7 @@ import pandas as pd
 from sleep_staging.provenance import hash_file
 from sleep_staging.sensor_profiles import LGBM_PROFILE
 from sleep_staging.serving.contract import KEYS, LABELS, context_matrix
-from sleep_staging.stack_release import RUN_ID, VERSION
+from sleep_staging.stack_release import CHECKPOINTS, RUN_ID, VERSION
 
 MODEL_DIR = Path(
     os.environ.get(
@@ -29,10 +29,6 @@ EXAMPLE_PATH = Path(
         Path(__file__).resolve().parents[3] / "output/demo-sueno-sintetico-10min.edf",
     )
 )
-CHECKPOINTS = {
-    "stack_five.joblib": "4a7021f0b6d147a1c64b86204489230aac1a469982d15780ca1189b4e431fb02",
-    "six_direct.pt": "4e5171ee040d42bfd389964150241d7ba618a73aec50573251ada67c76addfa3",
-}
 
 
 def checkpoint(name: str) -> Path:
@@ -68,19 +64,19 @@ def neural(path: Path, output: Path) -> None:
     )
 
 
-def score(path: Path, recording_id: str) -> pd.DataFrame:
+def inputs(
+    path: Path, recording_id: str, columns: list[str]
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Epoch table of the EDF and the 440 hybrid inputs of its eligible epochs."""
     from sleep_staging.serving.edf_lgbm import prepare_edf
 
     raw = prepare_edf(path, recording_id)
     result = raw[KEYS].copy()
     result["prediction"] = pd.Series(None, index=result.index, dtype=object)
-    prob_columns = ["prob_" + s for s in LABELS]
-    result[prob_columns] = np.nan
+    result[["prob_" + s for s in LABELS]] = np.nan
     valid = raw[raw.eligible]
     if valid.empty:
-        return result
-    model = classifier()
-    columns = list(model.feature_names_in_)
+        return result, pd.DataFrame(columns=columns)
     x = context_matrix(valid, columns[:145])
     # Torch and LightGBM have incompatible OpenMP runtimes on some operators' Macs.
     # Release neural-process memory before applying the tabular classifier.
@@ -108,13 +104,24 @@ def score(path: Path, recording_id: str) -> pd.DataFrame:
         )
     for i, label in enumerate(LABELS):
         x["fullnight_" + label] = stages[:, i] / mass[:, 0]
-    if list(x) != columns or set(model.classes_) != set(LABELS):
+    if list(x) != columns:
+        raise RuntimeError("Esquema del clasificador híbrido incompatible.")
+    return result, x
+
+
+def score(path: Path, recording_id: str, model: Any = None) -> pd.DataFrame:
+    """Score with the published classifier, or with a candidate under promotion."""
+    model = classifier() if model is None else model
+    result, x = inputs(path, recording_id, list(model.feature_names_in_))
+    if x.empty:
+        return result
+    if set(model.classes_) != set(LABELS):
         raise RuntimeError("Esquema del clasificador híbrido incompatible.")
     p = model.predict_proba(x)[:, [list(model.classes_).index(s) for s in LABELS]]
     if not np.isfinite(p).all() or not np.allclose(p.sum(1), 1, atol=1e-6):
         raise RuntimeError("Probabilidades finales inválidas.")
-    result.loc[raw.eligible, prob_columns] = p
-    result.loc[raw.eligible, "prediction"] = np.asarray(LABELS)[p.argmax(1)]
+    result.loc[result.eligible, ["prob_" + s for s in LABELS]] = p
+    result.loc[result.eligible, "prediction"] = np.asarray(LABELS)[p.argmax(1)]
     return result
 
 

@@ -1,9 +1,13 @@
-"""Train on the frozen development cohort on EC2. Each fit has its own MLflow run."""
+"""Train on the frozen development cohort on EC2. Each fit has its own MLflow run.
+
+`stack` refits the served hybrid (`stack_five`); `refit` and `tune` train its tabular LightGBM.
+"""
 
 import argparse
 import json
 import os
 import sqlite3
+import time
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -11,17 +15,19 @@ from typing import Any
 import boto3
 import joblib
 import mlflow
+import numpy as np
 import pandas as pd
 import yaml
 from botocore.exceptions import ClientError
 from mlflow.tracking import MlflowClient
+from sklearn.base import clone
 
 from sleep_staging.booster_selection import (
     BoosterCandidate,
     choose_trial,
     split_subjects,
 )
-from sleep_staging.booster_worker import Parameters, fit_booster
+from sleep_staging.booster_worker import Parameters, fit_booster, tracked_run
 from sleep_staging.evaluation import evaluate, scalar_metrics
 from sleep_staging.lstm_data import SequenceData
 from sleep_staging.provenance import fingerprint, hash_file, write_json
@@ -31,6 +37,11 @@ from sleep_staging.serving.contract import (
     predictions,
     read_night,
 )
+from sleep_staging.stack_release import MODEL as STACK
+from sleep_staging.stack_training import KEYS, PROBS, aligned, stacked
+
+RESEARCH_INPUTS = ("dataset", "splits", "grid", "fullnight_oof", "stack_example")
+STACK_INPUTS = ("model.joblib", "fullnight_oof", "stack_example")
 
 
 def download(s3: Any, bucket: str, pointer: dict, path: Path) -> None:
@@ -66,6 +77,24 @@ def development(
     return SequenceData.from_frame(pd.concat([meta, matrix], axis=1), list(matrix))
 
 
+def stack_inputs(
+    data: SequenceData, oof: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Append the out-of-fold FullNightNet stage probabilities to every labelled epoch."""
+    rows = data.frame.iloc[data.targets].reset_index(drop=True)
+    p = aligned(rows[["epoch_id", *KEYS, "task_5"]], oof)
+    return stacked(rows[data.columns], p), rows.task_5
+
+
+def stack_expected(model: Any, example: pd.DataFrame) -> pd.DataFrame:
+    """Candidate predictions on the frozen inputs of the bundled EDF example."""
+    p = model.predict_proba(example[list(model.feature_names_in_)])
+    p = p[:, [list(model.classes_).index(s) for s in LABELS]]
+    expected = example[["onset_s"]].assign(prediction=np.asarray(LABELS)[p.argmax(1)])
+    expected[PROBS] = p
+    return expected
+
+
 def train(mode: str, root: Path) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     s3 = boto3.client("s3")
@@ -89,10 +118,16 @@ def train(mode: str, root: Path) -> dict:
     if state.get("identity", identity) != identity:
         raise ValueError("Checkpoint belongs to a different campaign.")
     state["identity"] = identity
-    for name in ["dataset", "splits", "grid", "manifest", "example.parquet"]:
-        bucket = (
-            b["research"] if name in ("dataset", "splits", "grid") else b["releases"]
-        )
+    names = ["dataset", "splits", "grid", "manifest", "example.parquet"]
+    if mode == "stack":
+        if missing := [n for n in STACK_INPUTS if n not in objects]:
+            raise ValueError(
+                "Publish the hybrid inputs with publish_cloud_inputs.py --stack-run: "
+                + ", ".join(missing)
+            )
+        names += STACK_INPUTS
+    for name in names:
+        bucket = b["research"] if name in RESEARCH_INPUTS else b["releases"]
         download(s3, bucket, objects[name], root / name)
     manifest = json.loads((root / "manifest").read_text())
     if (
@@ -199,9 +234,132 @@ def train(mode: str, root: Path) -> dict:
         download(s3, b["research"], info["checkpoint"], path)
         return joblib.load(path)
 
+    def fit_stack() -> dict:
+        """Clone the approved LightGBM and refit it on 435 columns plus FullNightNet."""
+        if "stack" in state["fits"]:
+            fit_info = state["fits"]["stack"]
+            if client.get_run(fit_info["mlflow_run_id"]).info.status != "FINISHED":
+                raise ValueError("Incomplete MLflow checkpoint")
+            return fit_info
+        if hash_file(root / "model.joblib") != manifest["model_sha256"]:
+            raise ValueError("Base LightGBM differs from the release manifest")
+        x, y = stack_inputs(frame, pd.read_parquet(root / "fullnight_oof"))
+        folder = root / "fits" / "stack"
+        model = clone(joblib.load(root / "model.joblib"))
+        start = time.monotonic()
+        with tracked_run(
+            folder, STACK, "stack_fixed_refit", fingerprint([identity, "stack"])
+        ) as run_id:
+            model.fit(x, y)
+            path = folder / "stack_five.joblib"
+            joblib.dump(model, path, compress=3)
+            params = model.named_steps["classifier"].get_params()
+            mlflow.log_params(
+                {
+                    **{
+                        k: v
+                        for k, v in params.items()
+                        if isinstance(v, int | float | str)
+                    },
+                    "base_release": manifest["release_id"],
+                    "columns": x.shape[1],
+                    "fullnight_run": objects["fullnight_oof"].get("run", ""),
+                }
+            )
+            mlflow.log_metrics(
+                {"training_epochs": len(x), "fit_seconds": time.monotonic() - start}
+            )
+            mlflow.log_artifact(str(path))
+        summary = {
+            "mlflow_run_id": run_id,
+            "model_sha256": hash_file(path),
+            "columns": list(x.columns),
+            "training_epochs": len(x),
+            "training_subjects": int(frame.frame.subject_id.nunique()),
+            "elapsed_seconds": time.monotonic() - start,
+            "checkpoint": put(path, "fits/stack/stack_five.joblib"),
+        }
+        state["fits"]["stack"] = summary
+        save()
+        return summary
+
+    def finish(candidate: dict, files: dict) -> dict:
+        write_json(root / "candidate.json", candidate)
+        client.log_artifact(parent, str(root / "candidate.json"))
+        state["candidate"] = {
+            "manifest": put(root / "candidate.json", "manifest.json"),
+            "expected.parquet": put(root / "expected.parquet", "expected.parquet"),
+            **files,
+        }
+        client.set_terminated(parent, "FINISHED")
+        save()
+        print(
+            json.dumps(
+                {
+                    "campaign": campaign,
+                    "parent": parent,
+                    "candidate": candidate["release_id"],
+                    "fits": len(state["fits"]),
+                }
+            ),
+            flush=True,
+        )
+        return state
+
+    def provenance() -> dict:
+        return {
+            "training_job": campaign,
+            "source_revision": os.environ.get("SOURCE_REVISION", "unversioned"),
+            "training_image": os.environ.get("TRAIN_IMAGE"),
+            "versions": {
+                p: version(p)
+                for p in [
+                    "numpy",
+                    "pandas",
+                    "lightgbm",
+                    "scikit-learn",
+                    "mlflow",
+                    "joblib",
+                    "pyarrow",
+                ]
+            },
+        }
+
     seed = cfg.seed + 500
     outer = []
     try:
+        if mode == "stack":
+            final = fit_stack()
+            expected = stack_expected(
+                model_from(final), pd.read_parquet(root / "stack_example")
+            )
+            expected.to_parquet(root / "expected.parquet", index=False)
+            fullnight = objects["fullnight_oof"]
+            return finish(
+                {
+                    "model": STACK,
+                    "release_id": "stack-five-" + final["mlflow_run_id"][:12],
+                    "run_id": final["mlflow_run_id"],
+                    "parent_run_id": parent,
+                    "model_sha256": final["model_sha256"],
+                    "columns": final["columns"],
+                    "training_epochs": final["training_epochs"],
+                    "training_subjects": final["training_subjects"],
+                    "base_release_id": manifest["release_id"],
+                    "base_model_sha256": manifest["model_sha256"],
+                    "dataset_sha256": manifest["dataset_sha256"],
+                    "split_sha256": manifest["split_sha256"],
+                    "fullnight_oof_sha256": fullnight["sha256"],
+                    "fullnight_run": fullnight.get("run"),
+                    "fullnight_checkpoint_sha256": fullnight.get("checkpoint_sha256"),
+                    "stack_example_sha256": objects["stack_example"]["sha256"],
+                    **provenance(),
+                },
+                {
+                    "stack_five.joblib": final["checkpoint"],
+                    "stack_example": objects["stack_example"],
+                },
+            )
         if mode == "tune":
             grid = [BoosterCandidate(**c) for c in config["lgbm"]]
             for fold in [0, 1, 2, 3, 4, -1]:
@@ -273,44 +431,15 @@ def train(mode: str, root: Path) -> dict:
             "parent_run_id": parent,
             "iterations": final["best_epoch"],
             "training_config": final["configuration"],
-            "training_job": campaign,
-            "source_revision": os.environ.get("SOURCE_REVISION", "unversioned"),
-            "training_image": os.environ.get("TRAIN_IMAGE"),
-            "versions": {
-                p: version(p)
-                for p in [
-                    "numpy",
-                    "pandas",
-                    "lightgbm",
-                    "scikit-learn",
-                    "mlflow",
-                    "joblib",
-                    "pyarrow",
-                ]
+            **provenance(),
+        }
+        return finish(
+            candidate,
+            {
+                "model.joblib": final["checkpoint"],
+                "example.parquet": objects["example.parquet"],
             },
-        }
-        write_json(root / "candidate.json", candidate)
-        client.log_artifact(parent, str(root / "candidate.json"))
-        state["candidate"] = {
-            "manifest": put(root / "candidate.json", "manifest.json"),
-            "model.joblib": final["checkpoint"],
-            "expected.parquet": put(root / "expected.parquet", "expected.parquet"),
-            "example.parquet": objects["example.parquet"],
-        }
-        client.set_terminated(parent, "FINISHED")
-        save()
-        print(
-            json.dumps(
-                {
-                    "campaign": campaign,
-                    "parent": parent,
-                    "candidate": candidate["release_id"],
-                    "fits": len(state["fits"]),
-                }
-            ),
-            flush=True,
         )
-        return state
     except Exception:
         client.set_terminated(parent, "FAILED")
         save()
@@ -319,7 +448,7 @@ def train(mode: str, root: Path) -> dict:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--mode", choices=["refit", "tune"], default="refit")
+    p.add_argument("--mode", choices=["stack", "refit", "tune"], default="stack")
     p.add_argument("--root", type=Path, default=Path("/tmp/training"))
     a = p.parse_args()
     train(a.mode, a.root)
