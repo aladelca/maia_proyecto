@@ -53,9 +53,9 @@ box(ax, xs[1], y, w, h, "2. Preparación",
 box(ax, xs[2], y, w, h, "3. Características",
     "145 por época:\nFpz-Cz, Pz-Oz,\nEOG, EMG\n+ 290 de contexto\ntemporal = 435", LIGHT)
 box(ax, xs[3], y, w, h, "4. Modelado",
-    "RF, CatBoost,\nLightGBM,\nLSTM / BiLSTM\n5 folds por sujeto\n+ ajuste interno", LIGHT)
+    "RF, CatBoost,\nLightGBM, BiLSTM\nFullNightNet\n+ híbrido\n5 folds por sujeto", LIGHT)
 box(ax, xs[4], y, w, h, "5. Registro",
-    "MLflow: parámetros,\nmétricas, OOF\nModelo campeón:\nLightGBM ajustado\n16 sujetos reservados", LIGHT)
+    "MLflow: parámetros,\nmétricas, OOF\nModelo desplegado:\nLightGBM híbrido\n16 sujetos reservados", LIGHT)
 for a, b in zip(xs[:-1], xs[1:]):
     arrow(ax, (a + w, y + h / 2), (b, y + h / 2))
 
@@ -64,13 +64,13 @@ ax.text(0.1, 5.2, "B. Despliegue (AWS us-west-2 + Vercel, infraestructura como c
         fontsize=16, weight="bold", va="top")
 y2, h2 = 1.75, 2.75
 box(ax, 0.1, y2, 2.65, h2, "Usuario",
-    "Navegador web\nCarga una noche\no usa el ejemplo\npúblico", MID)
+    "Navegador web\nCarga un EDF\n(hasta 128 MiB)\no usa el ejemplo\npúblico", MID)
 box(ax, 3.3, y2, 2.65, h2, "Frontend",
     "React + Vite\npublicado en\nVercel\nHipnograma,\ntiempos, CSV", MID)
 box(ax, 6.5, y2, 2.65, h2, "API",
-    "API Gateway\n+ Lambda\n(contenedor)\nCarga firmada a S3\nIdempotencia", MID)
+    "API Gateway\n+ Lambda\nCarga firmada a S3\nIdempotencia\nOpenAPI, /health", MID)
 box(ax, 9.7, y2, 2.65, h2, "Orquestación",
-    "Step Functions\n→ Lambda worker\nValida SHA-256,\nderiva 435 variables,\npredice", MID)
+    "Step Functions\n→ Lambda worker\nValida SHA-256,\n435 variables +\nFullNightNet\n→ LightGBM híbrido", MID)
 box(ax, 12.9, y2, 2.65, h2, "Almacenamiento",
     "S3 versionado:\ncargas, resultados\n(expiran en 7 días)\ny versiones\ndel modelo", MID)
 for a, b in [(2.75, 3.3), (5.95, 6.5), (9.15, 9.7), (12.35, 12.9)]:
